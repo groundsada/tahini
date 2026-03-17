@@ -1,0 +1,119 @@
+{{define "title"}}{{.Workspace.Name}} - tahini{{end}}
+{{define "content"}}
+<h1>{{.Workspace.Name}}</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+
+<p>
+  template: <a href="/templates/{{.Workspace.TemplateID}}">{{.Workspace.TemplateName}}</a>
+  &nbsp;&mdash;&nbsp;
+  status: <span id="status-badge" class="badge badge-{{.Workspace.Status}}">{{.Workspace.Status}}</span>
+  &nbsp;&mdash;&nbsp;
+  <span class="meta">created {{.Workspace.CreatedAt.Format "2006-01-02 15:04"}}</span>
+</p>
+
+{{if .Workspace.Params}}
+<p class="meta" style="margin-top:0.25rem">vars: <code>{{.Workspace.Params}}</code></p>
+{{end}}
+
+<div class="actions" style="margin-top:1rem">
+  {{if or (eq .Workspace.Status "stopped") (eq .Workspace.Status "error")}}
+  <form class="inline" method="post" action="/workspaces/{{.Workspace.ID}}/start">
+    <button class="btn-primary">start</button>
+  </form>
+  {{end}}
+  {{if eq .Workspace.Status "running"}}
+  <form class="inline" method="post" action="/workspaces/{{.Workspace.ID}}/stop">
+    <button>stop</button>
+  </form>
+  <a href="/workspaces/{{.Workspace.ID}}/terminal" class="btn" target="_blank">terminal</a>
+  {{end}}
+  {{if not (or (eq .Workspace.Status "starting") (eq .Workspace.Status "stopping") (eq .Workspace.Status "deleting"))}}
+  <form class="inline" method="post" action="/workspaces/{{.Workspace.ID}}/delete"
+        onsubmit="return confirm('delete workspace {{.Workspace.Name}} and all its resources?')">
+    <button class="btn-danger">delete</button>
+  </form>
+  {{end}}
+</div>
+
+{{if .LatestBuild}}
+<h2>last build — <span class="badge badge-{{.LatestBuild.Status}}">{{.LatestBuild.Transition}} / {{.LatestBuild.Status}}</span>
+  <span class="meta" style="font-size:0.85em;font-weight:normal"> {{.LatestBuild.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
+</h2>
+<pre id="build-logs" class="logs">{{if .LogContent}}{{.LogContent}}{{else}}waiting for logs...{{end}}</pre>
+{{end}}
+
+{{if gt (len .Builds) 1}}
+<h2>build history</h2>
+<table>
+  <thead><tr><th>transition</th><th>status</th><th>started</th><th>finished</th></tr></thead>
+  <tbody>
+  {{range .Builds}}
+  <tr>
+    <td>{{.Transition}}</td>
+    <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+    <td class="meta">{{if .FinishedAt}}{{.FinishedAt.Format "2006-01-02 15:04:05"}}{{else}}&mdash;{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}
+
+{{define "scripts"}}
+<script>
+(function() {
+  const transient = ['starting', 'stopping', 'deleting'];
+  let status = '{{.Workspace.Status}}';
+  const workspaceID = '{{.Workspace.ID}}';
+  {{if .LatestBuild}}
+  const latestBuildID = '{{.LatestBuild.ID}}';
+  const buildIsRunning = '{{.LatestBuild.Status}}' === 'running';
+  {{end}}
+
+  function scrollLogs() {
+    const el = document.getElementById('build-logs');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+  scrollLogs();
+
+  function pollLogs() {
+    {{if .LatestBuild}}
+    if (!latestBuildID) return;
+    fetch('/api/builds/' + latestBuildID)
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('build-logs');
+        if (el && d.logs) { el.textContent = d.logs; scrollLogs(); }
+      })
+      .catch(() => {});
+    {{end}}
+  }
+
+  function poll() {
+    fetch('/api/workspaces/' + workspaceID + '/status')
+      .then(r => {
+        if (r.status === 404) { window.location.href = '/workspaces'; return null; }
+        return r.json();
+      })
+      .then(d => {
+        if (!d) return;
+        status = d.status;
+        const badge = document.getElementById('status-badge');
+        if (badge) { badge.className = 'badge badge-' + d.status; badge.textContent = d.status; }
+        {{if .LatestBuild}}if (buildIsRunning) pollLogs();{{end}}
+        if (transient.includes(d.status)) {
+          setTimeout(poll, 2000);
+        } else {
+          window.location.reload();
+        }
+      })
+      .catch(() => setTimeout(poll, 5000));
+  }
+
+  if (transient.includes(status)) {
+    setTimeout(poll, 2000);
+  }
+})();
+</script>
+{{end}}

@@ -1,0 +1,24 @@
+{{define "title"}}edit {{.Template.Name}} - tahini{{end}}
+{{define "content"}}
+<h1>edit template: {{.Template.Name}}</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+<form method="post" action="/templates/{{.Template.ID}}/update" style="max-width:860px">
+  <div class="form-row">
+    <label for="name">name</label>
+    <input type="text" id="name" name="name" value="{{.Template.Name}}" required>
+  </div>
+  <div class="form-row">
+    <label for="description">description</label>
+    <label class="sub">optional</label>
+    <input type="text" id="description" name="description" value="{{.Template.Description}}">
+  </div>
+  <div class="form-row">
+    <label for="hcl">opentofu template (HCL)</label>
+    <textarea id="hcl" name="hcl" rows="28" required spellcheck="false">{{.Template.HCL}}</textarea>
+  </div>
+  <div class="form-row" style="margin-top:1rem">
+    <button type="submit" class="btn-primary">save changes</button>
+    <a href="/templates/{{.Template.ID}}" class="btn" style="margin-left:0.5rem">cancel</a>
+  </div>
+</form>
+{{end}}

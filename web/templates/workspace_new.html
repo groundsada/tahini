@@ -1,0 +1,34 @@
+{{define "title"}}new workspace - tahini{{end}}
+{{define "content"}}
+<h1>new workspace</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+{{if not .Templates}}
+<div class="alert alert-info">no templates exist yet. <a href="/templates/new">create a template first</a>.</div>
+{{else}}
+<form method="post" action="/workspaces" style="max-width:600px">
+  <div class="form-row">
+    <label for="name">workspace name</label>
+    <label class="sub">lowercase letters, numbers, and hyphens only</label>
+    <input type="text" id="name" name="name" required placeholder="my-workspace" pattern="[a-z0-9\-]+" title="lowercase, numbers, hyphens">
+  </div>
+  <div class="form-row">
+    <label for="template_id">template</label>
+    <select id="template_id" name="template_id" required>
+      <option value="">-- select a template --</option>
+      {{range .Templates}}
+      <option value="{{.ID}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="params">extra variables</label>
+    <label class="sub">optional. one <code>KEY=VALUE</code> per line. passed to OpenTofu as <code>TF_VAR_KEY</code>.</label>
+    <textarea id="params" name="params" rows="6" spellcheck="false" placeholder="namespace=my-namespace&#10;image=ubuntu:22.04"></textarea>
+  </div>
+  <div class="form-row" style="margin-top:1rem">
+    <button type="submit" class="btn-primary">create workspace</button>
+    <a href="/workspaces" class="btn" style="margin-left:0.5rem">cancel</a>
+  </div>
+</form>
+{{end}}
+{{end}}

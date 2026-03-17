@@ -1,0 +1,61 @@
+replicaCount: 1  # do not scale beyond 1 – SQLite is single-writer
+
+image:
+  repository: tahini
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Admin credentials – required at install time.
+# Pass via: --set auth.adminPass=yourpassword
+auth:
+  adminUser: admin
+  adminPass: ""          # REQUIRED
+  sessionSecret: ""      # auto-generated if empty (sessions won't survive pod restarts)
+
+# Agent connectivity: the URL workspace pods use to dial back to tahini.
+# Defaults to the ClusterIP service URL derived from the release name.
+# Override if you use a different service name or namespace.
+agent:
+  internalURL: ""  # e.g. http://tahini-svc.tahini.svc.cluster.local:8080
+
+# PVC for /data (SQLite DB + workspace state + OpenTofu provider cache)
+persistence:
+  enabled: true
+  storageClass: ""       # use cluster default if empty
+  size: 10Gi
+  accessMode: ReadWriteOnce
+
+# RBAC – gives the service account cluster-wide permissions to manage
+# pods, pvcs, deployments, etc. so OpenTofu can provision workspaces.
+rbac:
+  create: true
+
+resources: {}
+
+securityContext:
+  runAsUser: 1000
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Optional ingress
+ingress:
+  enabled: false
+  className: ""          # e.g. "haproxy", "nginx"
+  annotations: {}
+  host: tahini.example.com
+  # tls: list of {hosts: [...], secretName: "..."} objects
+  # Leave secretName empty to let the ingress controller manage the cert.
+  # Example:
+  #   tls:
+  #     - hosts:
+  #         - tahini.example.com
+  #       secretName: tahini-tls   # omit if controller handles cert provisioning
+  tls: []

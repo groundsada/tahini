@@ -1,0 +1,36 @@
+{{define "title"}}{{.Template.Name}} - tahini{{end}}
+{{define "content"}}
+<h1>{{.Template.Name}}</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+{{if .Template.Description}}<p class="meta">{{.Template.Description}}</p>{{end}}
+<p class="meta">created {{.Template.CreatedAt.Format "2006-01-02 15:04"}}</p>
+
+<div class="actions" style="margin-top:1rem">
+  <a href="/templates/{{.Template.ID}}/edit" class="btn btn-sm">edit</a>
+  <form class="inline" method="post" action="/templates/{{.Template.ID}}/delete"
+        onsubmit="return confirm('delete template {{.Template.Name}}?')">
+    <button class="btn btn-sm btn-danger">delete</button>
+  </form>
+  <a href="/workspaces/new?template_id={{.Template.ID}}" class="btn btn-sm btn-primary">+ new workspace</a>
+</div>
+
+<h2>hcl template</h2>
+<pre class="logs" style="background:#f8f8f8;color:#222">{{.Template.HCL}}</pre>
+
+{{if .Workspaces}}
+<h2>workspaces using this template</h2>
+<table>
+  <thead><tr><th>name</th><th>status</th><th>created</th><th></th></tr></thead>
+  <tbody>
+  {{range .Workspaces}}
+  <tr>
+    <td><a href="/workspaces/{{.ID}}">{{.Name}}</a></td>
+    <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+    <td>{{if eq .Status "running"}}<a href="/workspaces/{{.ID}}/terminal" class="btn btn-sm" target="_blank">terminal</a>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

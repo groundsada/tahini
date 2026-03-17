@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tahini.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tahini.labels" . | nindent 4 }}
+spec:
+  # WARNING: do not scale beyond 1 — SQLite is single-writer
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "tahini.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tahini.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "tahini.fullname" . }}
+      securityContext:
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+        fsGroup: {{ .Values.securityContext.runAsUser }}
+      containers:
+        - name: tahini
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: TAHINI_DATA_DIR
+              value: /data
+            - name: TAHINI_ADDR
+              value: ":8080"
+            - name: TOFU_BIN
+              value: /usr/local/bin/tofu
+            - name: TAHINI_INTERNAL_URL
+              value: {{ .Values.agent.internalURL | default (printf "http://%s.%s.svc.cluster.local:8080" (include "tahini.fullname" .) .Release.Namespace) | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "tahini.fullname" . }}-credentials
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.securityContext.allowPrivilegeEscalation }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "tahini.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,36 @@
+{{define "title"}}workspaces - tahini{{end}}
+{{define "content"}}
+<h1>workspaces</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+<p><a href="/workspaces/new" class="btn btn-primary btn-sm">+ new workspace</a></p>
+{{if .Workspaces}}
+<table>
+  <thead><tr><th>name</th><th>template</th><th>status</th><th>updated</th><th>actions</th></tr></thead>
+  <tbody>
+  {{range .Workspaces}}
+  <tr>
+    <td><a href="/workspaces/{{.ID}}">{{.Name}}</a></td>
+    <td><a href="/templates/{{.TemplateID}}">{{.TemplateName}}</a></td>
+    <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+    <td class="meta">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+    <td>
+      {{if or (eq .Status "stopped") (eq .Status "error")}}
+      <form class="inline" method="post" action="/workspaces/{{.ID}}/start">
+        <button class="btn btn-sm btn-primary">start</button>
+      </form>
+      {{end}}
+      {{if eq .Status "running"}}
+      <form class="inline" method="post" action="/workspaces/{{.ID}}/stop">
+        <button class="btn btn-sm">stop</button>
+      </form>
+      <a href="/workspaces/{{.ID}}/terminal" class="btn btn-sm" target="_blank">terminal</a>
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="meta">no workspaces yet. <a href="/workspaces/new">create one</a>.</p>
+{{end}}
+{{end}}

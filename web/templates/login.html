@@ -1,0 +1,32 @@
+{{define "login"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>login - tahini</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; font-size: 14px; background: #fff; color: #222; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .box { width: 320px; }
+    h1 { font-size: 1.6rem; margin-bottom: 1.5rem; }
+    label { display: block; font-weight: bold; font-size: 0.9em; margin-top: 0.75rem; }
+    input { display: block; width: 100%; padding: 0.4rem 0.5rem; border: 1px solid #ccc; font-family: monospace; font-size: 14px; margin-top: 0.25rem; }
+    button { display: block; width: 100%; margin-top: 1.25rem; padding: 0.5rem; background: #0066cc; color: #fff; border: none; font-family: monospace; font-size: 14px; cursor: pointer; }
+    button:hover { background: #0052a3; }
+    .alert { margin-bottom: 0.75rem; padding: 0.4rem 0.6rem; background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+<div class="box">
+  <h1>tahini</h1>
+  {{if index . "Error"}}{{if index . "Error"}}<div class="alert">{{index . "Error"}}</div>{{end}}{{end}}
+  <form method="post" action="/login">
+    <label for="username">username</label>
+    <input type="text" id="username" name="username" required autofocus autocomplete="username">
+    <label for="password">password</label>
+    <input type="password" id="password" name="password" required autocomplete="current-password">
+    <button type="submit">login</button>
+  </form>
+</div>
+</body>
+</html>
+{{end}}

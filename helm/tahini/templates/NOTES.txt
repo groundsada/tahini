@@ -1,0 +1,20 @@
+tahini has been deployed.
+
+Access the UI:
+
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "tahini.fullname" . }} 8080:8080
+
+Then open http://localhost:8080 and log in with:
+  username: {{ .Values.auth.adminUser }}
+  password: (the value you set for auth.adminPass)
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is enabled. Access at: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+{{- end }}
+
+IMPORTANT:
+- Do not scale replicaCount beyond 1 — tahini uses SQLite which does not support multiple writers.
+- The ClusterRole grants broad permissions across all namespaces so OpenTofu templates can
+  create pods, PVCs, deployments, etc. anywhere. Restrict it post-install if needed.
