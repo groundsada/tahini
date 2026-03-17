@@ -160,11 +160,12 @@ type workspaceNewPage struct {
 }
 
 type workspaceDetailPage struct {
-	Workspace   db.Workspace
-	LatestBuild *db.Build
-	Builds      []db.Build
-	LogContent  string
-	Error       string
+	Workspace      db.Workspace
+	LatestBuild    *db.Build
+	Builds         []db.Build
+	LogContent     string
+	AgentConnected bool
+	Error          string
 }
 
 func (s *Server) handleWorkspacesList(w http.ResponseWriter, r *http.Request) {
@@ -221,11 +222,12 @@ func (s *Server) handleWorkspaceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "workspace_detail", workspaceDetailPage{
-		Workspace:   workspace,
-		LatestBuild: latestBuild,
-		Builds:      builds,
-		LogContent:  logContent,
-		Error:       r.URL.Query().Get("error"),
+		Workspace:      workspace,
+		LatestBuild:    latestBuild,
+		Builds:         builds,
+		LogContent:     logContent,
+		AgentConnected: s.hub.AgentConnected(id),
+		Error:          r.URL.Query().Get("error"),
 	})
 }
 
