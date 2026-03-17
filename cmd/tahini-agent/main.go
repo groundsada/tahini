@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -164,9 +167,83 @@ func run(tahiniURL, token string) error {
 
 		case "ping":
 			send(msg{Type: "pong"})
+
+		case "portforward":
+			channelID := m.Session
+			port := int(m.Cols)
+			tahiniURLCopy := tahiniURL
+			tokenCopy := token
+			go func() {
+				if err := handlePortForward(tahiniURLCopy, tokenCopy, channelID, port); err != nil {
+					log.Printf("agent: portforward channel %s: %v", channelID, err)
+				}
+			}()
 		}
 	}
 }
+
+func handlePortForward(tahiniURL, token, channelID string, port int) error {
+	// Connect to local port.
+	tcpConn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
+	if err != nil {
+		return fmt.Errorf("dial localhost:%d: %w", port, err)
+	}
+	defer tcpConn.Close()
+
+	// Connect back to server.
+	u, err := url.Parse(tahiniURL)
+	if err != nil {
+		return err
+	}
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	}
+	u.Path = "/agent/portforward"
+	u.RawQuery = url.Values{"token": {token}, "channel": {channelID}}.Encode()
+
+	wsConn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("dial portforward ws: %w", err)
+	}
+	defer wsConn.Close()
+
+	done := make(chan struct{})
+
+	// TCP → WS
+	go func() {
+		defer close(done)
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := tcpConn.Read(buf)
+			if n > 0 {
+				if werr := wsConn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// WS → TCP
+	for {
+		_, data, err := wsConn.ReadMessage()
+		if err != nil {
+			break
+		}
+		if _, err := tcpConn.Write(data); err != nil {
+			break
+		}
+	}
+	<-done
+	return nil
+}
+
+var _ = io.Copy // suppress unused import
 
 func findShell() string {
 	for _, sh := range []string{"/bin/bash", "/bin/sh", "/bin/ash"} {

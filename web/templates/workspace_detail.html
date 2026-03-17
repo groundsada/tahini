@@ -40,6 +40,44 @@
   {{end}}
 </div>
 
+{{if and (or (eq .Workspace.Status "stopped") (eq .Workspace.Status "error")) .TemplateVars}}
+<h2>variables</h2>
+<form method="post" action="/workspaces/{{.Workspace.ID}}/params" style="max-width:480px" id="params-form">
+  {{range .TemplateVars}}
+  <div class="form-row">
+    <label for="pvar_{{.}}">{{.}}</label>
+    <input type="text" id="pvar_{{.}}" data-varname="{{.}}" style="width:320px">
+  </div>
+  {{end}}
+  <input type="hidden" name="params" id="params-hidden">
+  <div class="form-row" style="margin-top:0.75rem">
+    <button type="submit" class="btn-primary btn-sm">save vars</button>
+  </div>
+</form>
+<script>
+(function(){
+  var raw = {{.Workspace.Params | js}};
+  var pairs = {};
+  raw.split('\n').forEach(function(line){
+    var idx = line.indexOf('=');
+    if(idx>0){ pairs[line.slice(0,idx).trim()] = line.slice(idx+1); }
+  });
+  document.querySelectorAll('#params-form [data-varname]').forEach(function(inp){
+    var n = inp.getAttribute('data-varname');
+    if(pairs[n] !== undefined) inp.value = pairs[n];
+  });
+  document.getElementById('params-form').addEventListener('submit', function(){
+    var lines=[];
+    document.querySelectorAll('#params-form [data-varname]').forEach(function(inp){
+      var v=inp.value.trim();
+      if(v) lines.push(inp.getAttribute('data-varname')+'='+v);
+    });
+    document.getElementById('params-hidden').value = lines.join('\n');
+  });
+})();
+</script>
+{{end}}
+
 {{if .LatestBuild}}
 <h2>last build — <span class="badge badge-{{.LatestBuild.Status}}">{{.LatestBuild.Transition}} / {{.LatestBuild.Status}}</span>
   <span class="meta" style="font-size:0.85em;font-weight:normal"> {{.LatestBuild.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
@@ -97,18 +135,20 @@
   }
   scrollLogs();
 
-  function pollLogs() {
+  function startLogStream() {
     {{if .LatestBuild}}
-    if (!latestBuildID) return;
-    fetch('/api/builds/' + latestBuildID)
-      .then(r => r.json())
-      .then(d => {
-        const el = document.getElementById('build-logs');
-        if (el && d.logs) { el.textContent = d.logs; scrollLogs(); }
-      })
-      .catch(() => {});
+    if (!latestBuildID || !buildIsRunning) return;
+    const el = document.getElementById('build-logs');
+    if (!el) return;
+    const src = new EventSource('/api/builds/' + latestBuildID + '/stream');
+    src.onmessage = function(e) {
+      try { el.textContent = atob(e.data); scrollLogs(); } catch(_) {}
+    };
+    src.addEventListener('done', function() { src.close(); });
+    src.onerror = function() { src.close(); };
     {{end}}
   }
+  startLogStream();
 
   function poll() {
     fetch('/api/workspaces/' + workspaceID + '/status')
@@ -122,7 +162,6 @@
         const badge = document.getElementById('status-badge');
         if (badge) { badge.className = 'badge badge-' + d.status; badge.textContent = d.status; }
         updateDot(d.agent_connected === true);
-        {{if .LatestBuild}}if (buildIsRunning) pollLogs();{{end}}
         if (transient.includes(d.status)) {
           setTimeout(poll, 2000);
         } else {

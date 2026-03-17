@@ -5,7 +5,7 @@
 {{if not .Templates}}
 <div class="alert alert-info">no templates exist yet. <a href="/templates/new">create a template first</a>.</div>
 {{else}}
-<form method="post" action="/workspaces" style="max-width:600px">
+<form method="post" action="/workspaces" style="max-width:600px" id="ws-form">
   <div class="form-row">
     <label for="name">workspace name</label>
     <label class="sub">lowercase letters, numbers, and hyphens only</label>
@@ -16,19 +16,60 @@
     <select id="template_id" name="template_id" required>
       <option value="">-- select a template --</option>
       {{range .Templates}}
-      <option value="{{.ID}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>
+      <option value="{{.ID}}" data-vars="{{index $.TemplateVars .ID}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>
       {{end}}
     </select>
   </div>
-  <div class="form-row">
-    <label for="params">extra variables</label>
-    <label class="sub">optional. one <code>KEY=VALUE</code> per line. passed to OpenTofu as <code>TF_VAR_KEY</code>.</label>
-    <textarea id="params" name="params" rows="6" spellcheck="false" placeholder="namespace=my-namespace&#10;image=ubuntu:22.04"></textarea>
-  </div>
+  <div id="var-inputs"></div>
+  <input type="hidden" id="params" name="params">
   <div class="form-row" style="margin-top:1rem">
     <button type="submit" class="btn-primary">create workspace</button>
     <a href="/workspaces" class="btn" style="margin-left:0.5rem">cancel</a>
   </div>
 </form>
 {{end}}
+{{end}}
+
+{{define "scripts"}}
+<script>
+(function() {
+  var sel = document.getElementById('template_id');
+  var varDiv = document.getElementById('var-inputs');
+  var paramsInput = document.getElementById('params');
+
+  function renderVars() {
+    var opt = sel.options[sel.selectedIndex];
+    var raw = opt ? opt.getAttribute('data-vars') : '';
+    var vars = raw ? raw.split(',').filter(Boolean) : [];
+    varDiv.innerHTML = '';
+    vars.forEach(function(name) {
+      var row = document.createElement('div');
+      row.className = 'form-row';
+      var lbl = document.createElement('label');
+      lbl.textContent = name;
+      lbl.setAttribute('for', 'var_' + name);
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.id = 'var_' + name;
+      inp.setAttribute('data-varname', name);
+      inp.style.width = '320px';
+      row.appendChild(lbl);
+      row.appendChild(inp);
+      varDiv.appendChild(row);
+    });
+  }
+
+  sel.addEventListener('change', renderVars);
+  renderVars();
+
+  document.getElementById('ws-form').addEventListener('submit', function() {
+    var lines = [];
+    varDiv.querySelectorAll('input[data-varname]').forEach(function(inp) {
+      var val = inp.value.trim();
+      if (val !== '') lines.push(inp.getAttribute('data-varname') + '=' + val);
+    });
+    paramsInput.value = lines.join('\n');
+  });
+})();
+</script>
 {{end}}

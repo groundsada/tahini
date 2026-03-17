@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -20,8 +21,9 @@ type agentMsg struct {
 }
 
 type agentConn struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn      *websocket.Conn
+	mu        sync.Mutex
+	lastSeen  time.Time
 }
 
 func (a *agentConn) send(m agentMsg) error {
@@ -47,15 +49,53 @@ func (b *browserSession) close() {
 // Hub routes terminal I/O between workspace agents and browser sessions.
 type Hub struct {
 	mu       sync.RWMutex
-	agents   map[string]*agentConn              // workspaceID → agent
+	agents   map[string]*agentConn                // workspaceID → agent
 	browsers map[string]map[string]*browserSession // workspaceID → sessionID → browser
+	pfMu     sync.Mutex
+	pfWaiters map[string]chan *websocket.Conn // channelID → waiting accept chan
 }
 
 func New() *Hub {
 	return &Hub{
-		agents:   make(map[string]*agentConn),
-		browsers: make(map[string]map[string]*browserSession),
+		agents:    make(map[string]*agentConn),
+		browsers:  make(map[string]map[string]*browserSession),
+		pfWaiters: make(map[string]chan *websocket.Conn),
 	}
+}
+
+// RequestPortForward sends a port-forward request to the agent and returns a channel
+// that will receive the agent's back-connect WebSocket.
+func (h *Hub) RequestPortForward(workspaceID, channelID string, port int) (<-chan *websocket.Conn, error) {
+	ch := make(chan *websocket.Conn, 1)
+	h.pfMu.Lock()
+	h.pfWaiters[channelID] = ch
+	h.pfMu.Unlock()
+
+	err := h.sendToAgent(workspaceID, agentMsg{
+		Type:    "portforward",
+		Session: channelID,
+		Cols:    uint16(port),
+	})
+	if err != nil {
+		h.pfMu.Lock()
+		delete(h.pfWaiters, channelID)
+		h.pfMu.Unlock()
+		return nil, err
+	}
+	return ch, nil
+}
+
+// AcceptPortForward is called when the agent opens a back-connect for a port-forward channel.
+func (h *Hub) AcceptPortForward(channelID string, conn *websocket.Conn) bool {
+	h.pfMu.Lock()
+	ch := h.pfWaiters[channelID]
+	delete(h.pfWaiters, channelID)
+	h.pfMu.Unlock()
+	if ch == nil {
+		return false
+	}
+	ch <- conn
+	return true
 }
 
 // AgentConnected reports whether a live agent WebSocket is registered for the workspace.
@@ -66,9 +106,23 @@ func (h *Hub) AgentConnected(workspaceID string) bool {
 	return ok
 }
 
+// AgentLastSeen returns the time the agent last sent a message, or zero if not connected.
+func (h *Hub) AgentLastSeen(workspaceID string) time.Time {
+	h.mu.RLock()
+	a := h.agents[workspaceID]
+	h.mu.RUnlock()
+	if a == nil {
+		return time.Time{}
+	}
+	a.mu.Lock()
+	t := a.lastSeen
+	a.mu.Unlock()
+	return t
+}
+
 // HandleAgent registers the agent WebSocket for a workspace and blocks until it disconnects.
 func (h *Hub) HandleAgent(workspaceID string, conn *websocket.Conn) {
-	agent := &agentConn{conn: conn}
+	agent := &agentConn{conn: conn, lastSeen: time.Now()}
 
 	h.mu.Lock()
 	if old, ok := h.agents[workspaceID]; ok {
@@ -98,6 +152,10 @@ func (h *Hub) HandleAgent(workspaceID string, conn *websocket.Conn) {
 		if err != nil {
 			break
 		}
+		agent.mu.Lock()
+		agent.lastSeen = time.Now()
+		agent.mu.Unlock()
+
 		var m agentMsg
 		if err := json.Unmarshal(data, &m); err != nil {
 			continue

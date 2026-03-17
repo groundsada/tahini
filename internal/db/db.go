@@ -7,10 +7,26 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
 const schema = `
+CREATE TABLE IF NOT EXISTS orgs (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL UNIQUE,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+	id            TEXT PRIMARY KEY,
+	username      TEXT NOT NULL UNIQUE,
+	password_hash TEXT NOT NULL,
+	role          TEXT NOT NULL DEFAULT 'user',
+	org_id        TEXT REFERENCES orgs(id),
+	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS templates (
 	id          TEXT PRIMARY KEY,
 	name        TEXT NOT NULL UNIQUE,
@@ -44,11 +60,27 @@ type DB struct {
 	db *sql.DB
 }
 
+type Org struct {
+	ID        string
+	Name      string
+	CreatedAt time.Time
+}
+
+type User struct {
+	ID           string
+	Username     string
+	PasswordHash string
+	Role         string // owner, user_admin, template_admin, user
+	OrgID        string
+	CreatedAt    time.Time
+}
+
 type Template struct {
 	ID          string
 	Name        string
 	Description string
 	HCL         string
+	GitURL      string
 	CreatedAt   time.Time
 }
 
@@ -87,7 +119,20 @@ func New(path string) (*DB, error) {
 	if err := d.migrateAgentToken(); err != nil {
 		return nil, fmt.Errorf("migrate agent_token: %w", err)
 	}
+	if err := d.migrateTemplateGitURL(); err != nil {
+		return nil, fmt.Errorf("migrate git_url: %w", err)
+	}
+	if err := d.migrateUsers(); err != nil {
+		return nil, fmt.Errorf("migrate users: %w", err)
+	}
 	return d, nil
+}
+
+// migrateUsers ensures the orgs and users tables exist (they may not if this is an old DB).
+func (d *DB) migrateUsers() error {
+	// These are created by schema above; this is a no-op for new DBs.
+	// For old DBs the CREATE TABLE IF NOT EXISTS in schema handles it.
+	return nil
 }
 
 // migrateAgentToken adds the agent_token column if it doesn't exist yet.
@@ -99,15 +144,170 @@ func (d *DB) migrateAgentToken() error {
 	return nil
 }
 
+// migrateTemplateGitURL adds the git_url column to templates if it doesn't exist.
+func (d *DB) migrateTemplateGitURL() error {
+	_, err := d.db.Exec(`ALTER TABLE templates ADD COLUMN git_url TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	return nil
+}
+
 func (d *DB) Close() error { return d.db.Close() }
+
+// --- Orgs ---
+
+func (d *DB) CreateOrg(name string) (Org, error) {
+	id := uuid.New().String()
+	_, err := d.db.Exec(`INSERT INTO orgs (id, name) VALUES (?, ?)`, id, name)
+	if err != nil {
+		return Org{}, err
+	}
+	return d.GetOrg(id)
+}
+
+func (d *DB) GetOrg(id string) (Org, error) {
+	var o Org
+	err := d.db.QueryRow(`SELECT id, name, created_at FROM orgs WHERE id = ?`, id).
+		Scan(&o.ID, &o.Name, &o.CreatedAt)
+	return o, err
+}
+
+func (d *DB) ListOrgs() ([]Org, error) {
+	rows, err := d.db.Query(`SELECT id, name, created_at FROM orgs ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Org
+	for rows.Next() {
+		var o Org
+		if err := rows.Scan(&o.ID, &o.Name, &o.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) DeleteOrg(id string) error {
+	_, err := d.db.Exec(`DELETE FROM orgs WHERE id = ?`, id)
+	return err
+}
+
+// --- Users ---
+
+func (d *DB) CreateUser(username, password, role, orgID string) (User, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return User{}, err
+	}
+	id := uuid.New().String()
+	var orgVal any
+	if orgID != "" {
+		orgVal = orgID
+	}
+	_, err = d.db.Exec(
+		`INSERT INTO users (id, username, password_hash, role, org_id) VALUES (?, ?, ?, ?, ?)`,
+		id, username, string(hash), role, orgVal,
+	)
+	if err != nil {
+		return User{}, err
+	}
+	return d.GetUserByID(id)
+}
+
+func (d *DB) GetUserByID(id string) (User, error) {
+	var u User
+	var orgID sql.NullString
+	err := d.db.QueryRow(
+		`SELECT id, username, password_hash, role, COALESCE(org_id,''), created_at FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &orgID, &u.CreatedAt)
+	if orgID.Valid {
+		u.OrgID = orgID.String
+	}
+	return u, err
+}
+
+func (d *DB) GetUserByUsername(username string) (User, error) {
+	var u User
+	err := d.db.QueryRow(
+		`SELECT id, username, password_hash, role, COALESCE(org_id,''), created_at FROM users WHERE username = ?`, username,
+	).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.OrgID, &u.CreatedAt)
+	return u, err
+}
+
+func (d *DB) AuthenticateUser(username, password string) (User, error) {
+	u, err := d.GetUserByUsername(username)
+	if err != nil {
+		return User{}, fmt.Errorf("invalid credentials")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+		return User{}, fmt.Errorf("invalid credentials")
+	}
+	return u, nil
+}
+
+func (d *DB) ListUsers() ([]User, error) {
+	rows, err := d.db.Query(
+		`SELECT id, username, password_hash, role, COALESCE(org_id,''), created_at FROM users ORDER BY username`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.OrgID, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) UpdateUserRole(id, role string) error {
+	_, err := d.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id)
+	return err
+}
+
+func (d *DB) UpdateUserOrg(id, orgID string) error {
+	var orgVal any
+	if orgID != "" {
+		orgVal = orgID
+	}
+	_, err := d.db.Exec(`UPDATE users SET org_id = ? WHERE id = ?`, orgVal, id)
+	return err
+}
+
+func (d *DB) DeleteUser(id string) error {
+	_, err := d.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	return err
+}
+
+func (d *DB) CountUsers() (int, error) {
+	var n int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (d *DB) UpdateUserPassword(id, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), id)
+	return err
+}
 
 // --- Templates ---
 
-func (d *DB) CreateTemplate(name, description, hcl string) (Template, error) {
+func (d *DB) CreateTemplate(name, description, hcl, gitURL string) (Template, error) {
 	id := uuid.New().String()
 	_, err := d.db.Exec(
-		`INSERT INTO templates (id, name, description, hcl) VALUES (?, ?, ?, ?)`,
-		id, name, description, hcl,
+		`INSERT INTO templates (id, name, description, hcl, git_url) VALUES (?, ?, ?, ?, ?)`,
+		id, name, description, hcl, gitURL,
 	)
 	if err != nil {
 		return Template{}, err
@@ -118,14 +318,14 @@ func (d *DB) CreateTemplate(name, description, hcl string) (Template, error) {
 func (d *DB) GetTemplate(id string) (Template, error) {
 	var t Template
 	err := d.db.QueryRow(
-		`SELECT id, name, description, hcl, created_at FROM templates WHERE id = ?`, id,
-	).Scan(&t.ID, &t.Name, &t.Description, &t.HCL, &t.CreatedAt)
+		`SELECT id, name, description, hcl, git_url, created_at FROM templates WHERE id = ?`, id,
+	).Scan(&t.ID, &t.Name, &t.Description, &t.HCL, &t.GitURL, &t.CreatedAt)
 	return t, err
 }
 
 func (d *DB) ListTemplates() ([]Template, error) {
 	rows, err := d.db.Query(
-		`SELECT id, name, description, hcl, created_at FROM templates ORDER BY created_at DESC`,
+		`SELECT id, name, description, hcl, git_url, created_at FROM templates ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -134,7 +334,7 @@ func (d *DB) ListTemplates() ([]Template, error) {
 	var out []Template
 	for rows.Next() {
 		var t Template
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.HCL, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.HCL, &t.GitURL, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -142,11 +342,16 @@ func (d *DB) ListTemplates() ([]Template, error) {
 	return out, rows.Err()
 }
 
-func (d *DB) UpdateTemplate(id, name, description, hcl string) error {
+func (d *DB) UpdateTemplate(id, name, description, hcl, gitURL string) error {
 	_, err := d.db.Exec(
-		`UPDATE templates SET name = ?, description = ?, hcl = ? WHERE id = ?`,
-		name, description, hcl, id,
+		`UPDATE templates SET name = ?, description = ?, hcl = ?, git_url = ? WHERE id = ?`,
+		name, description, hcl, gitURL, id,
 	)
+	return err
+}
+
+func (d *DB) UpdateTemplateHCL(id, hcl string) error {
+	_, err := d.db.Exec(`UPDATE templates SET hcl = ? WHERE id = ?`, hcl, id)
 	return err
 }
 
@@ -226,6 +431,14 @@ func (d *DB) UpdateWorkspaceStatus(id, status string) error {
 	_, err := d.db.Exec(
 		`UPDATE workspaces SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, id,
+	)
+	return err
+}
+
+func (d *DB) UpdateWorkspaceParams(id, params string) error {
+	_, err := d.db.Exec(
+		`UPDATE workspaces SET params = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		params, id,
 	)
 	return err
 }

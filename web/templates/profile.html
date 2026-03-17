@@ -1,0 +1,24 @@
+{{define "title"}}profile - tahini{{end}}
+{{define "content"}}
+<h1>profile</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+
+{{if .User}}
+<p><strong>username:</strong> {{.User.Username}}</p>
+<p><strong>role:</strong> {{.User.Role}}</p>
+{{if .User.OrgID}}<p><strong>org:</strong> {{.User.OrgID}}</p>{{end}}
+
+<h2>change password</h2>
+<form method="post" action="/profile/password" style="max-width:400px">
+  <div class="form-row">
+    <label for="password">new password</label>
+    <input type="password" id="password" name="password" required minlength="8">
+  </div>
+  <div class="form-row" style="margin-top:0.75rem">
+    <button type="submit" class="btn-primary">update password</button>
+  </div>
+</form>
+{{else}}
+<p class="meta">logged in as env admin. password is controlled via <code>TAHINI_ADMIN_PASS</code> environment variable.</p>
+{{end}}
+{{end}}

@@ -11,7 +11,7 @@ func (d *DB) SeedDefaultTemplates() error {
 		return nil
 	}
 	for _, t := range defaultTemplates {
-		if _, err := d.CreateTemplate(t.name, t.description, t.hcl); err != nil {
+		if _, err := d.CreateTemplate(t.name, t.description, t.hcl, ""); err != nil {
 			return err
 		}
 	}

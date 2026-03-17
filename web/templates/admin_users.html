@@ -1,0 +1,82 @@
+{{define "title"}}users - tahini{{end}}
+{{define "content"}}
+<h1>users</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+
+<h2>create user</h2>
+<form method="post" action="/admin/users" style="max-width:500px">
+  <div class="form-row">
+    <label for="username">username</label>
+    <input type="text" id="username" name="username" required>
+  </div>
+  <div class="form-row">
+    <label for="password">password</label>
+    <input type="password" id="password" name="password" required minlength="8">
+  </div>
+  <div class="form-row">
+    <label for="role">role</label>
+    <select id="role" name="role">
+      <option value="user">user</option>
+      <option value="template_admin">template admin</option>
+      <option value="user_admin">user admin</option>
+      <option value="owner">owner</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="org_id">org</label>
+    <select id="org_id" name="org_id">
+      <option value="">— none —</option>
+      {{range .Orgs}}
+      <option value="{{.ID}}">{{.Name}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div class="form-row" style="margin-top:0.75rem">
+    <button type="submit" class="btn-primary">create user</button>
+  </div>
+</form>
+
+{{if .Users}}
+<h2>all users</h2>
+<table>
+  <thead><tr><th>username</th><th>role</th><th>org</th><th>created</th><th>actions</th></tr></thead>
+  <tbody>
+  {{range .Users}}
+  <tr>
+    <td>{{.Username}}</td>
+    <td>
+      <form class="inline" method="post" action="/admin/users/{{.ID}}/role">
+        <select name="role" onchange="this.form.submit()" style="font-size:13px;padding:2px">
+          {{$role := .Role}}
+          <option value="user"{{if eq "user" $role}} selected{{end}}>user</option>
+          <option value="template_admin"{{if eq "template_admin" $role}} selected{{end}}>template admin</option>
+          <option value="user_admin"{{if eq "user_admin" $role}} selected{{end}}>user admin</option>
+          <option value="owner"{{if eq "owner" $role}} selected{{end}}>owner</option>
+        </select>
+        <select name="org_id" onchange="this.form.submit()" style="font-size:13px;padding:2px">
+          <option value="">— none —</option>
+          {{$orgID := .OrgID}}
+          {{range $.Orgs}}
+          <option value="{{.ID}}"{{if eq .ID $orgID}} selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </form>
+    </td>
+    <td class="meta">{{if .OrgID}}{{.OrgID}}{{else}}—{{end}}</td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02"}}</td>
+    <td>
+      <form class="inline" method="post" action="/admin/users/{{.ID}}/delete"
+            onsubmit="return confirm('delete user {{.Username}}?')">
+        <button class="btn btn-sm btn-danger">delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="meta" style="margin-top:1rem">no db users yet. the env-admin account is always active.</p>
+{{end}}
+
+<p style="margin-top:1.5rem"><a href="/admin/orgs">manage orgs →</a></p>
+{{end}}

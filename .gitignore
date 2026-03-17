@@ -1,0 +1,6 @@
+/cmd/tahini/tahini
+/cmd/tahini-agent/tahini-agent
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl

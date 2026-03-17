@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"tahini.dev/tahini/internal/db"
 	"tahini.dev/tahini/internal/server"
@@ -48,12 +50,20 @@ func main() {
 		Bin:     tofuBin,
 	}
 
+	var idleTimeout time.Duration
+	if raw := os.Getenv("TAHINI_IDLE_TIMEOUT_MINUTES"); raw != "" {
+		if mins, err := strconv.Atoi(raw); err == nil && mins > 0 {
+			idleTimeout = time.Duration(mins) * time.Minute
+		}
+	}
+
 	srv := server.New(database, executor, server.Config{
 		AdminUser:     adminUser,
 		AdminPass:     adminPass,
 		SessionSecret: os.Getenv("TAHINI_SESSION_SECRET"),
 		Addr:          addr,
 		InternalURL:   os.Getenv("TAHINI_INTERNAL_URL"),
+		IdleTimeout:   idleTimeout,
 	})
 
 	if err := database.SeedDefaultTemplates(); err != nil {

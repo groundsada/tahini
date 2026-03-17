@@ -13,6 +13,11 @@
     <input type="text" id="description" name="description" value="{{.Template.Description}}">
   </div>
   <div class="form-row">
+    <label for="git_url">git raw URL</label>
+    <label class="sub">optional. HCL is fetched from this URL when you click sync.</label>
+    <input type="text" id="git_url" name="git_url" value="{{.Template.GitURL}}" style="width:600px">
+  </div>
+  <div class="form-row">
     <label for="hcl">opentofu template (HCL)</label>
     <textarea id="hcl" name="hcl" rows="28" required spellcheck="false">{{.Template.HCL}}</textarea>
   </div>

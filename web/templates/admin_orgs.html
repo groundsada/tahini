@@ -1,0 +1,37 @@
+{{define "title"}}orgs - tahini{{end}}
+{{define "content"}}
+<h1>organizations</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+
+<form method="post" action="/admin/orgs" style="display:flex;gap:0.5rem;align-items:flex-end;margin-bottom:1.5rem">
+  <div>
+    <label for="name" style="display:block;font-weight:bold;font-size:0.9em">org name</label>
+    <input type="text" id="name" name="name" required placeholder="acme">
+  </div>
+  <button type="submit" class="btn-primary">create org</button>
+</form>
+
+{{if .Orgs}}
+<table>
+  <thead><tr><th>name</th><th>created</th><th></th></tr></thead>
+  <tbody>
+  {{range .Orgs}}
+  <tr>
+    <td>{{.Name}}</td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02"}}</td>
+    <td>
+      <form class="inline" method="post" action="/admin/orgs/{{.ID}}/delete"
+            onsubmit="return confirm('delete org {{.Name}}?')">
+        <button class="btn btn-sm btn-danger">delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="meta">no orgs yet.</p>
+{{end}}
+
+<p style="margin-top:1rem"><a href="/admin/users">← users</a></p>
+{{end}}

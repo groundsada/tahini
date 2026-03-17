@@ -13,6 +13,11 @@
     <input type="text" id="description" name="description" placeholder="short description">
   </div>
   <div class="form-row">
+    <label for="git_url">git raw URL</label>
+    <label class="sub">optional. if set, HCL is fetched from this URL on sync. e.g. a raw GitHub URL.</label>
+    <input type="text" id="git_url" name="git_url" placeholder="https://raw.githubusercontent.com/…/main.tf" style="width:600px">
+  </div>
+  <div class="form-row">
     <label for="hcl">opentofu template (HCL)</label>
     <label class="sub">
       use the <code>kubernetes</code> provider. a <code>variable "transition"</code> is automatically injected

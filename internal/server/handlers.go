@@ -3,15 +3,20 @@ package server
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"tahini.dev/tahini/internal/db"
+	hclutil "tahini.dev/tahini/internal/hcl"
 	"tahini.dev/tahini/internal/tofu"
 )
 
@@ -25,6 +30,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	user := r.FormValue("username")
 	pass := r.FormValue("password")
 
+	// Try DB user first.
+	if dbUser, err := s.db.AuthenticateUser(user, pass); err == nil {
+		s.issueUserSession(w, dbUser.ID, dbUser.Role)
+		http.Redirect(w, r, "/workspaces", http.StatusFound)
+		return
+	}
+
+	// Fallback to env-var admin.
 	userOK := subtle.ConstantTimeCompare([]byte(user), []byte(s.config.AdminUser)) == 1
 	passOK := subtle.ConstantTimeCompare([]byte(pass), []byte(s.config.AdminPass)) == 1
 	if !userOK || !passOK {
@@ -73,13 +86,14 @@ func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	description := strings.TrimSpace(r.FormValue("description"))
 	hcl := strings.TrimSpace(r.FormValue("hcl"))
+	gitURL := strings.TrimSpace(r.FormValue("git_url"))
 
 	if name == "" || hcl == "" {
 		http.Redirect(w, r, "/templates/new?error=name+and+hcl+are+required", http.StatusFound)
 		return
 	}
 
-	tmpl, err := s.db.CreateTemplate(name, description, hcl)
+	tmpl, err := s.db.CreateTemplate(name, description, hcl, gitURL)
 	if err != nil {
 		http.Redirect(w, r, "/templates/new?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
@@ -120,14 +134,39 @@ func (s *Server) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	description := strings.TrimSpace(r.FormValue("description"))
 	hcl := strings.TrimSpace(r.FormValue("hcl"))
+	gitURL := strings.TrimSpace(r.FormValue("git_url"))
 
 	if name == "" || hcl == "" {
 		http.Redirect(w, r, "/templates/"+id+"/edit?error=name+and+hcl+are+required", http.StatusFound)
 		return
 	}
 
-	if err := s.db.UpdateTemplate(id, name, description, hcl); err != nil {
+	if err := s.db.UpdateTemplate(id, name, description, hcl, gitURL); err != nil {
 		http.Redirect(w, r, "/templates/"+id+"/edit?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/templates/"+id, http.StatusFound)
+}
+
+func (s *Server) handleTemplateSync(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tmpl, err := s.db.GetTemplate(id)
+	if err != nil {
+		http.Redirect(w, r, "/templates?error=template+not+found", http.StatusFound)
+		return
+	}
+	if tmpl.GitURL == "" {
+		http.Redirect(w, r, "/templates/"+id+"?error=no+git+url+configured", http.StatusFound)
+		return
+	}
+
+	hcl, err := fetchURL(tmpl.GitURL)
+	if err != nil {
+		http.Redirect(w, r, "/templates/"+id+"?error="+url.QueryEscape("fetch failed: "+err.Error()), http.StatusFound)
+		return
+	}
+	if err := s.db.UpdateTemplateHCL(id, hcl); err != nil {
+		http.Redirect(w, r, "/templates/"+id+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/templates/"+id, http.StatusFound)
@@ -155,8 +194,9 @@ type workspaceListPage struct {
 }
 
 type workspaceNewPage struct {
-	Templates []db.Template
-	Error     string
+	Templates    []db.Template
+	TemplateVars map[string]string // template ID → comma-separated var names
+	Error        string
 }
 
 type workspaceDetailPage struct {
@@ -165,6 +205,7 @@ type workspaceDetailPage struct {
 	Builds         []db.Build
 	LogContent     string
 	AgentConnected bool
+	TemplateVars   []string // variable names from the template HCL
 	Error          string
 }
 
@@ -181,9 +222,15 @@ func (s *Server) handleWorkspacesList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleWorkspaceNew(w http.ResponseWriter, r *http.Request) {
 	templates, _ := s.db.ListTemplates()
+	tvars := make(map[string]string, len(templates))
+	for _, t := range templates {
+		vars := hclutil.ParseVariables(t.HCL)
+		tvars[t.ID] = strings.Join(vars, ",")
+	}
 	s.render(w, "workspace_new", workspaceNewPage{
-		Templates: templates,
-		Error:     r.URL.Query().Get("error"),
+		Templates:    templates,
+		TemplateVars: tvars,
+		Error:        r.URL.Query().Get("error"),
 	})
 }
 
@@ -221,14 +268,39 @@ func (s *Server) handleWorkspaceDetail(w http.ResponseWriter, r *http.Request) {
 		logContent = tofu.ReadLog(latestBuild.LogPath)
 	}
 
+	var templateVars []string
+	if tmpl, err := s.db.GetTemplate(workspace.TemplateID); err == nil {
+		templateVars = hclutil.ParseVariables(tmpl.HCL)
+	}
+
 	s.render(w, "workspace_detail", workspaceDetailPage{
 		Workspace:      workspace,
 		LatestBuild:    latestBuild,
 		Builds:         builds,
 		LogContent:     logContent,
 		AgentConnected: s.hub.AgentConnected(id),
+		TemplateVars:   templateVars,
 		Error:          r.URL.Query().Get("error"),
 	})
+}
+
+func (s *Server) handleWorkspaceUpdateParams(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	workspace, err := s.db.GetWorkspace(id)
+	if err != nil {
+		http.Redirect(w, r, "/workspaces", http.StatusFound)
+		return
+	}
+	if workspace.Status != "stopped" && workspace.Status != "error" {
+		http.Redirect(w, r, "/workspaces/"+id+"?error=workspace+must+be+stopped+to+edit+params", http.StatusFound)
+		return
+	}
+	params := strings.TrimSpace(r.FormValue("params"))
+	if err := s.db.UpdateWorkspaceParams(id, params); err != nil {
+		http.Redirect(w, r, "/workspaces/"+id+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/workspaces/"+id, http.StatusFound)
 }
 
 func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +457,67 @@ func (s *Server) handleAPIBuild(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (s *Server) handleAPIBuildStream(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	build, err := s.db.GetBuild(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			content := tofu.ReadLog(build.LogPath)
+			encoded := base64.StdEncoding.EncodeToString([]byte(content))
+			fmt.Fprintf(w, "data: %s\n\n", encoded)
+			flusher.Flush()
+
+			// Check if build finished.
+			b, err := s.db.GetBuild(id)
+			if err != nil || b.Status != "running" {
+				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+				flusher.Flush()
+				return
+			}
+		}
+	}
+}
+
 // --- Helpers ---
+
+// fetchURL fetches a URL and returns its body as a string (max 1MB).
+func fetchURL(rawURL string) (string, error) {
+	resp, err := http.Get(rawURL) //nolint:gosec
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
 
 // parseParams splits "KEY=VALUE\nKEY2=VALUE2" into a slice of "KEY=VALUE" strings.
 func parseParams(params string) []string {

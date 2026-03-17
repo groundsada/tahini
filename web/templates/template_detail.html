@@ -7,12 +7,18 @@
 
 <div class="actions" style="margin-top:1rem">
   <a href="/templates/{{.Template.ID}}/edit" class="btn btn-sm">edit</a>
+  {{if .Template.GitURL}}
+  <form class="inline" method="post" action="/templates/{{.Template.ID}}/sync">
+    <button class="btn btn-sm">sync from git</button>
+  </form>
+  {{end}}
   <form class="inline" method="post" action="/templates/{{.Template.ID}}/delete"
         onsubmit="return confirm('delete template {{.Template.Name}}?')">
     <button class="btn btn-sm btn-danger">delete</button>
   </form>
   <a href="/workspaces/new?template_id={{.Template.ID}}" class="btn btn-sm btn-primary">+ new workspace</a>
 </div>
+{{if .Template.GitURL}}<p class="meta" style="margin-top:0.5rem">git url: <code>{{.Template.GitURL}}</code></p>{{end}}
 
 <h2>hcl template</h2>
 <pre class="logs" style="background:#f8f8f8;color:#222">{{.Template.HCL}}</pre>

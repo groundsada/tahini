@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"tahini.dev/tahini/internal/db"
 	"tahini.dev/tahini/internal/hub"
@@ -18,7 +19,8 @@ type Config struct {
 	AdminPass     string
 	SessionSecret string
 	Addr          string
-	InternalURL   string // base URL agents use to dial back, e.g. http://tahini-svc:8080
+	InternalURL   string        // base URL agents use to dial back, e.g. http://tahini-svc:8080
+	IdleTimeout   time.Duration // stop workspace after this long without an agent heartbeat (0 = disabled)
 }
 
 type Server struct {
@@ -47,7 +49,61 @@ func New(database *db.DB, executor *tofu.Executor, config Config) *Server {
 }
 
 func (s *Server) Start() error {
+	if s.config.IdleTimeout > 0 {
+		go s.runIdleWatcher()
+	}
 	return http.ListenAndServe(s.config.Addr, s.mux)
+}
+
+func (s *Server) runIdleWatcher() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		workspaces, err := s.db.ListWorkspaces()
+		if err != nil {
+			continue
+		}
+		for _, w := range workspaces {
+			if w.Status != "running" {
+				continue
+			}
+			last := s.hub.AgentLastSeen(w.ID)
+			if last.IsZero() {
+				// Agent never connected or already disconnected.
+				// Only stop if the workspace has been running a while.
+				continue
+			}
+			if time.Since(last) > s.config.IdleTimeout {
+				log.Printf("idle-watcher: stopping workspace %s (idle for %s)", w.ID, time.Since(last).Round(time.Second))
+				if _, loaded := s.building.LoadOrStore(w.ID, struct{}{}); loaded {
+					continue
+				}
+				tmpl, err := s.db.GetTemplate(w.TemplateID)
+				if err != nil {
+					s.building.Delete(w.ID)
+					continue
+				}
+				if err := s.executor.WriteHCL(w.ID, tmpl.HCL); err != nil {
+					s.building.Delete(w.ID)
+					continue
+				}
+				buildID := generateSecret()[:32]
+				logPath := s.executor.LogPath(w.ID, buildID)
+				if _, err := s.db.CreateBuild(buildID, w.ID, "stop", logPath); err != nil {
+					s.building.Delete(w.ID)
+					continue
+				}
+				s.db.UpdateWorkspaceStatus(w.ID, "stopping")
+				params := parseParams(w.Params)
+				agentParams := []string{"agent_token=" + w.AgentToken}
+				if s.config.InternalURL != "" {
+					agentParams = append(agentParams, "tahini_url="+s.config.InternalURL)
+				}
+				params = append(agentParams, params...)
+				go s.runBuild(w.ID, buildID, "stop", params)
+			}
+		}
+	}
 }
 
 func (s *Server) routes() {
@@ -79,6 +135,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /templates/{id}/edit", auth(http.HandlerFunc(s.handleTemplateEdit)))
 	s.mux.Handle("POST /templates/{id}/update", auth(http.HandlerFunc(s.handleTemplateUpdate)))
 	s.mux.Handle("POST /templates/{id}/delete", auth(http.HandlerFunc(s.handleTemplateDelete)))
+	s.mux.Handle("POST /templates/{id}/sync", auth(http.HandlerFunc(s.handleTemplateSync)))
 
 	// Workspaces
 	s.mux.Handle("GET /workspaces", auth(http.HandlerFunc(s.handleWorkspacesList)))
@@ -88,17 +145,37 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /workspaces/{id}/start", auth(http.HandlerFunc(s.handleWorkspaceStart)))
 	s.mux.Handle("POST /workspaces/{id}/stop", auth(http.HandlerFunc(s.handleWorkspaceStop)))
 	s.mux.Handle("POST /workspaces/{id}/delete", auth(http.HandlerFunc(s.handleWorkspaceDelete)))
+	s.mux.Handle("POST /workspaces/{id}/params", auth(http.HandlerFunc(s.handleWorkspaceUpdateParams)))
 
 	// JSON API for polling
 	s.mux.Handle("GET /api/workspaces/{id}/status", auth(http.HandlerFunc(s.handleAPIWorkspaceStatus)))
 	s.mux.Handle("GET /api/builds/{id}", auth(http.HandlerFunc(s.handleAPIBuild)))
+	s.mux.Handle("GET /api/builds/{id}/stream", auth(http.HandlerFunc(s.handleAPIBuildStream)))
 
-	// Agent WebSocket endpoint (no auth middleware – authenticated via token param)
+	// Agent WebSocket endpoints (no auth middleware – authenticated via token param)
 	s.mux.HandleFunc("GET /agent/connect", s.handleAgentConnect)
+	s.mux.HandleFunc("GET /agent/portforward", s.handleAgentPortForward)
 
 	// Terminal UI + WebSocket (protected)
 	s.mux.Handle("GET /workspaces/{id}/terminal", auth(http.HandlerFunc(s.handleWorkspaceTerminalPage)))
 	s.mux.Handle("GET /ws/workspaces/{id}/terminal", auth(http.HandlerFunc(s.handleWorkspaceTerminalWS)))
+
+	// Port forwarding via agent (protected)
+	s.mux.Handle("GET /ws/workspaces/{id}/ports/{port}", auth(http.HandlerFunc(s.handleWorkspacePortForwardWS)))
+
+	// Admin (owner + user_admin)
+	ownerAuth := s.requireOwnerOrAdmin
+	s.mux.Handle("GET /admin/users", ownerAuth(http.HandlerFunc(s.handleAdminUsers)))
+	s.mux.Handle("POST /admin/users", ownerAuth(http.HandlerFunc(s.handleAdminUserCreate)))
+	s.mux.Handle("POST /admin/users/{id}/role", ownerAuth(http.HandlerFunc(s.handleAdminUserUpdateRole)))
+	s.mux.Handle("POST /admin/users/{id}/delete", ownerAuth(http.HandlerFunc(s.handleAdminUserDelete)))
+	s.mux.Handle("GET /admin/orgs", ownerAuth(http.HandlerFunc(s.handleAdminOrgs)))
+	s.mux.Handle("POST /admin/orgs", ownerAuth(http.HandlerFunc(s.handleAdminOrgCreate)))
+	s.mux.Handle("POST /admin/orgs/{id}/delete", ownerAuth(http.HandlerFunc(s.handleAdminOrgDelete)))
+
+	// User profile
+	s.mux.Handle("GET /profile", auth(http.HandlerFunc(s.handleProfilePage)))
+	s.mux.Handle("POST /profile/password", auth(http.HandlerFunc(s.handleProfilePassword)))
 }
 
 // render parses base.html + the named page template and executes "base".
