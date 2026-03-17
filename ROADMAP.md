@@ -4,7 +4,7 @@ Features are implemented one at a time in this order. Each is deployed and verif
 
 | # | Feature | Status |
 |---|---------|--------|
-| 1 | **Agent connected indicator** — green/grey dot on workspace pages showing live agent status | pending |
+| 1 | **Agent connected indicator** — green/grey dot on workspace pages showing live agent status | done |
 | 2 | **Bundle xterm.js locally** — embed xterm JS/CSS in the binary; proper terminal with colors, cursor, scrollback | pending |
 | 3 | **Workspace logs streaming** — replace 2s poll with SSE for live build log tail | pending |
 | 4 | **Auto-stop on idle** — stop pod after N minutes with no agent heartbeat; configurable per workspace | pending |

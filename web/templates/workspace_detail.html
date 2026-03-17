@@ -7,6 +7,7 @@
   template: <a href="/templates/{{.Workspace.TemplateID}}">{{.Workspace.TemplateName}}</a>
   &nbsp;&mdash;&nbsp;
   status: <span id="status-badge" class="badge badge-{{.Workspace.Status}}">{{.Workspace.Status}}</span>
+  <span id="agent-dot" class="agent-dot agent-dot-off" title="agent disconnected"></span>
   &nbsp;&mdash;&nbsp;
   <span class="meta">created {{.Workspace.CreatedAt.Format "2006-01-02 15:04"}}</span>
 </p>
@@ -101,6 +102,12 @@
         status = d.status;
         const badge = document.getElementById('status-badge');
         if (badge) { badge.className = 'badge badge-' + d.status; badge.textContent = d.status; }
+        const dot = document.getElementById('agent-dot');
+        if (dot) {
+          const on = d.agent_connected === true;
+          dot.className = 'agent-dot ' + (on ? 'agent-dot-on' : 'agent-dot-off');
+          dot.title = on ? 'agent connected' : 'agent disconnected';
+        }
         {{if .LatestBuild}}if (buildIsRunning) pollLogs();{{end}}
         if (transient.includes(d.status)) {
           setTimeout(poll, 2000);
@@ -111,9 +118,9 @@
       .catch(() => setTimeout(poll, 5000));
   }
 
-  if (transient.includes(status)) {
-    setTimeout(poll, 2000);
-  }
+  // Always poll once on load to get the initial agent dot state,
+  // then keep polling if the workspace is in a transient state.
+  setTimeout(poll, 1000);
 })();
 </script>
 {{end}}

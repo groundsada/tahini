@@ -343,7 +343,10 @@ func (s *Server) handleAPIWorkspaceStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": workspace.Status})
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":          workspace.Status,
+		"agent_connected": s.hub.AgentConnected(id),
+	})
 }
 
 type buildAPIResponse struct {

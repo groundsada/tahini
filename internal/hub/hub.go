@@ -58,6 +58,14 @@ func New() *Hub {
 	}
 }
 
+// AgentConnected reports whether a live agent WebSocket is registered for the workspace.
+func (h *Hub) AgentConnected(workspaceID string) bool {
+	h.mu.RLock()
+	_, ok := h.agents[workspaceID]
+	h.mu.RUnlock()
+	return ok
+}
+
 // HandleAgent registers the agent WebSocket for a workspace and blocks until it disconnects.
 func (h *Hub) HandleAgent(workspaceID string, conn *websocket.Conn) {
 	agent := &agentConn{conn: conn}

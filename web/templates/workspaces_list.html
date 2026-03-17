@@ -11,7 +11,10 @@
   <tr>
     <td><a href="/workspaces/{{.ID}}">{{.Name}}</a></td>
     <td><a href="/templates/{{.TemplateID}}">{{.TemplateName}}</a></td>
-    <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+    <td>
+      <span class="badge badge-{{.Status}}">{{.Status}}</span>
+      {{if eq .Status "running"}}<span class="agent-dot agent-dot-off" id="dot-{{.ID}}" title="checking…"></span>{{end}}
+    </td>
     <td class="meta">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
     <td>
       {{if or (eq .Status "stopped") (eq .Status "error")}}
@@ -33,4 +36,23 @@
 {{else}}
 <p class="meta">no workspaces yet. <a href="/workspaces/new">create one</a>.</p>
 {{end}}
+{{end}}
+
+{{define "scripts"}}
+<script>
+(function() {
+  // Poll agent status for every running workspace dot on the page.
+  document.querySelectorAll('[id^="dot-"]').forEach(function(dot) {
+    var id = dot.id.replace('dot-', '');
+    fetch('/api/workspaces/' + id + '/status')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var on = d.agent_connected === true;
+        dot.className = 'agent-dot ' + (on ? 'agent-dot-on' : 'agent-dot-off');
+        dot.title = on ? 'agent connected' : 'agent disconnected';
+      })
+      .catch(function() {});
+  });
+})();
+</script>
 {{end}}
