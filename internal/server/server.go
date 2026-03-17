@@ -2,6 +2,7 @@ package server
 
 import (
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -50,6 +51,10 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) routes() {
+	// Static assets
+	staticFS, _ := fs.Sub(web.StaticFS, "static")
+	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
 	// Public
 	s.mux.HandleFunc("GET /login", s.handleLoginPage)
 	s.mux.HandleFunc("POST /login", s.handleLogin)
