@@ -33,6 +33,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Try DB user first.
 	if dbUser, err := s.db.AuthenticateUser(user, pass); err == nil {
 		s.issueUserSession(w, dbUser.ID, dbUser.Role)
+		go s.db.LogEvent(dbUser.ID, dbUser.Username, "login", "user", dbUser.ID, dbUser.Username, clientIP(r))
 		http.Redirect(w, r, "/environments", http.StatusFound)
 		return
 	}
@@ -46,6 +47,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.issueSession(w)
+	go s.db.LogEvent("", user, "login", "user", "", user, clientIP(r))
 	http.Redirect(w, r, "/environments", http.StatusFound)
 }
 
@@ -98,6 +100,7 @@ func (s *Server) handleBlueprintCreate(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/blueprints/new?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "blueprint.create", "blueprint", bp.ID, bp.Name)
 	http.Redirect(w, r, "/blueprints/"+bp.ID, http.StatusFound)
 }
 
@@ -145,6 +148,7 @@ func (s *Server) handleBlueprintUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/blueprints/"+id+"/edit?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "blueprint.update", "blueprint", id, name)
 	http.Redirect(w, r, "/blueprints/"+id, http.StatusFound)
 }
 
@@ -183,6 +187,7 @@ func (s *Server) handleBlueprintDelete(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/blueprints/"+id+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "blueprint.delete", "blueprint", id, id)
 	http.Redirect(w, r, "/blueprints", http.StatusFound)
 }
 
@@ -249,6 +254,7 @@ func (s *Server) handleEnvironmentCreate(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/environments/new?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "env.create", "environment", env.ID, env.Name)
 	http.Redirect(w, r, "/environments/"+env.ID, http.StatusFound)
 }
 
@@ -309,6 +315,7 @@ func (s *Server) handleEnvironmentStart(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, "/environments/"+id+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "env.start", "environment", id, id)
 	http.Redirect(w, r, "/environments/"+id, http.StatusFound)
 }
 
@@ -318,6 +325,7 @@ func (s *Server) handleEnvironmentStop(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/environments/"+id+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "env.stop", "environment", id, id)
 	http.Redirect(w, r, "/environments/"+id, http.StatusFound)
 }
 
@@ -337,6 +345,7 @@ func (s *Server) handleEnvironmentDelete(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/environments/"+id+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "env.delete", "environment", id, id)
 	http.Redirect(w, r, "/environments", http.StatusFound)
 }
 

@@ -53,10 +53,12 @@ func (s *Server) handleAdminUserCreate(w http.ResponseWriter, r *http.Request) {
 		role = "user"
 	}
 
-	if _, err := s.db.CreateUser(username, password, role, orgID); err != nil {
+	u, err := s.db.CreateUser(username, password, role, orgID)
+	if err != nil {
 		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "user.create", "user", u.ID, u.Username)
 	http.Redirect(w, r, "/admin/users", http.StatusFound)
 }
 
@@ -66,6 +68,7 @@ func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
+	s.logEvent(r, "user.delete", "user", id, id)
 	http.Redirect(w, r, "/admin/users", http.StatusFound)
 }
 
@@ -112,6 +115,15 @@ func (s *Server) handleAdminOrgDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/orgs", http.StatusFound)
 }
 
+func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
+	events, err := s.db.ListEvents(500)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "admin_audit", map[string]any{"Events": events})
+}
+
 func (s *Server) handleProfilePage(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFromContext(r)
 	var user *db.User
@@ -154,6 +166,7 @@ func (s *Server) handleProfileCreateToken(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, "/profile?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
+	s.logEvent(r, "token.create", "token", "", name)
 	http.Redirect(w, r, "/profile?new_token="+url.QueryEscape(rawToken), http.StatusSeeOther)
 }
 

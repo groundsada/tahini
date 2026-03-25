@@ -170,6 +170,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /admin/orgs", ownerAuth(http.HandlerFunc(s.handleAdminOrgs)))
 	s.mux.Handle("POST /admin/orgs", ownerAuth(http.HandlerFunc(s.handleAdminOrgCreate)))
 	s.mux.Handle("POST /admin/orgs/{id}/delete", ownerAuth(http.HandlerFunc(s.handleAdminOrgDelete)))
+	s.mux.Handle("GET /admin/audit", ownerAuth(http.HandlerFunc(s.handleAdminAudit)))
 
 	// User profile + API token management
 	s.mux.Handle("GET /profile", auth(http.HandlerFunc(s.handleProfilePage)))

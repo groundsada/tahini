@@ -67,6 +67,18 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 	created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_used_at TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS events (
+	id            TEXT PRIMARY KEY,
+	actor_id      TEXT NOT NULL DEFAULT '',
+	actor_name    TEXT NOT NULL DEFAULT '',
+	action        TEXT NOT NULL,
+	resource_type TEXT NOT NULL DEFAULT '',
+	resource_id   TEXT NOT NULL DEFAULT '',
+	resource_name TEXT NOT NULL DEFAULT '',
+	ip            TEXT NOT NULL DEFAULT '',
+	created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 type DB struct {
@@ -681,4 +693,46 @@ func (d *DB) DeleteAPIToken(id, userID string) error {
 func (d *DB) TouchAPIToken(id string) error {
 	_, err := d.exec(`UPDATE api_tokens SET last_used_at=CURRENT_TIMESTAMP WHERE id=?`, id)
 	return err
+}
+
+// --- Events (audit log) ---
+
+type Event struct {
+	ID           string
+	ActorID      string
+	ActorName    string
+	Action       string
+	ResourceType string
+	ResourceID   string
+	ResourceName string
+	IP           string
+	CreatedAt    time.Time
+}
+
+func (d *DB) LogEvent(actorID, actorName, action, resourceType, resourceID, resourceName, ip string) {
+	id := uuid.New().String()
+	d.exec(
+		`INSERT INTO events (id,actor_id,actor_name,action,resource_type,resource_id,resource_name,ip) VALUES (?,?,?,?,?,?,?,?)`,
+		id, actorID, actorName, action, resourceType, resourceID, resourceName, ip,
+	)
+}
+
+func (d *DB) ListEvents(limit int) ([]Event, error) {
+	rows, err := d.query(
+		`SELECT id,actor_id,actor_name,action,resource_type,resource_id,resource_name,ip,created_at FROM events ORDER BY created_at DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.ActorID, &e.ActorName, &e.Action, &e.ResourceType, &e.ResourceID, &e.ResourceName, &e.IP, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

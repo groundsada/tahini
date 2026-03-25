@@ -1,0 +1,34 @@
+{{define "title"}}audit log - tahini{{end}}
+{{define "content"}}
+<h1>audit log</h1>
+<p class="meta" style="margin-bottom:1rem">last 500 events, newest first</p>
+{{if .Events}}
+<table>
+  <thead>
+    <tr>
+      <th>time</th>
+      <th>actor</th>
+      <th>action</th>
+      <th>resource</th>
+      <th>ip</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Events}}
+  <tr>
+    <td class="meta" style="white-space:nowrap">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+    <td>{{if .ActorName}}{{.ActorName}}{{else}}<span class="meta">—</span>{{end}}</td>
+    <td><code>{{.Action}}</code></td>
+    <td>
+      {{if .ResourceType}}<span class="meta">{{.ResourceType}}</span>{{end}}
+      {{if .ResourceName}}&nbsp;{{.ResourceName}}{{end}}
+    </td>
+    <td class="meta">{{.IP}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="meta">no events recorded yet.</p>
+{{end}}
+{{end}}
