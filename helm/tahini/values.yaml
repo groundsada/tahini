@@ -1,4 +1,4 @@
-replicaCount: 1  # do not scale beyond 1 – SQLite is single-writer
+replicaCount: 1  # increase to >1 only when using Postgres (SQLite is single-writer)
 
 image:
   repository: tahini
@@ -22,7 +22,21 @@ auth:
 agent:
   internalURL: ""  # e.g. http://tahini-svc.tahini.svc.cluster.local:8080
 
-# PVC for /data (SQLite DB + workspace state + OpenTofu provider cache)
+# Database configuration.
+# Leave url empty to use the default embedded SQLite at /data/tahini.db.
+# Set url to a postgres:// connection string to use Postgres instead.
+# When using Postgres you can also scale replicaCount > 1.
+#
+# Example (CloudNativePG):
+#   database:
+#     url: "postgres://tahini:password@tahini-pg-rw.tahini.svc:5432/tahini?sslmode=require"
+#     existingSecret: ""     # name of a pre-existing secret containing DATABASE_URL key
+#
+database:
+  url: ""            # postgres:// URL; empty = use SQLite
+  existingSecret: "" # if set, DATABASE_URL is read from this secret instead of url
+
+# PVC for /data (SQLite DB when not using Postgres, workspace state, OpenTofu provider cache)
 persistence:
   enabled: true
   storageClass: ""       # use cluster default if empty

@@ -1,0 +1,42 @@
+{{define "title"}}{{.Blueprint.Name}} - tahini{{end}}
+{{define "content"}}
+<h1>{{.Blueprint.Name}}</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+{{if .Blueprint.Description}}<p class="meta">{{.Blueprint.Description}}</p>{{end}}
+<p class="meta">created {{.Blueprint.CreatedAt.Format "2006-01-02 15:04"}}</p>
+
+<div class="actions" style="margin-top:1rem">
+  <a href="/blueprints/{{.Blueprint.ID}}/edit" class="btn btn-sm">edit</a>
+  {{if .Blueprint.GitURL}}
+  <form class="inline" method="post" action="/blueprints/{{.Blueprint.ID}}/sync">
+    <button class="btn btn-sm">sync from git</button>
+  </form>
+  {{end}}
+  <form class="inline" method="post" action="/blueprints/{{.Blueprint.ID}}/delete"
+        onsubmit="return confirm('delete blueprint {{.Blueprint.Name}}?')">
+    <button class="btn btn-sm btn-danger">delete</button>
+  </form>
+  <a href="/environments/new?blueprint_id={{.Blueprint.ID}}" class="btn btn-sm btn-primary">+ new environment</a>
+</div>
+{{if .Blueprint.GitURL}}<p class="meta" style="margin-top:0.5rem">git url: <code>{{.Blueprint.GitURL}}</code></p>{{end}}
+
+<h2>hcl blueprint</h2>
+<pre class="logs" style="background:#f8f8f8;color:#222">{{.Blueprint.HCL}}</pre>
+
+{{if .Environments}}
+<h2>environments using this blueprint</h2>
+<table>
+  <thead><tr><th>name</th><th>status</th><th>created</th><th></th></tr></thead>
+  <tbody>
+  {{range .Environments}}
+  <tr>
+    <td><a href="/environments/{{.ID}}">{{.Name}}</a></td>
+    <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+    <td>{{if eq .Status "running"}}<a href="/environments/{{.ID}}/terminal" class="btn btn-sm" target="_blank">terminal</a>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

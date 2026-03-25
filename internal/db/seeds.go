@@ -1,17 +1,17 @@
 package db
 
-// SeedDefaultTemplates inserts built-in templates when the templates table is empty.
-// Safe to call on every startup — does nothing if templates already exist.
-func (d *DB) SeedDefaultTemplates() error {
+// SeedDefaultBlueprints inserts built-in blueprints when the blueprints table is empty.
+// Safe to call on every startup — does nothing if blueprints already exist.
+func (d *DB) SeedDefaultBlueprints() error {
 	var count int
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM templates`).Scan(&count); err != nil {
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM blueprints`).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
 		return nil
 	}
 	for _, t := range defaultTemplates {
-		if _, err := d.CreateTemplate(t.name, t.description, t.hcl, ""); err != nil {
+		if _, err := d.CreateBlueprint(t.name, t.description, t.hcl, ""); err != nil {
 			return err
 		}
 	}

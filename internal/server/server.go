@@ -20,7 +20,7 @@ type Config struct {
 	SessionSecret string
 	Addr          string
 	InternalURL   string        // base URL agents use to dial back, e.g. http://tahini-svc:8080
-	IdleTimeout   time.Duration // stop workspace after this long without an agent heartbeat (0 = disabled)
+	IdleTimeout   time.Duration // stop environment after this long without an agent heartbeat (0 = disabled)
 }
 
 type Server struct {
@@ -29,7 +29,7 @@ type Server struct {
 	config   Config
 	mux      *http.ServeMux
 	hub      *hub.Hub
-	building sync.Map // workspaceID -> struct{}
+	building sync.Map // environmentID -> struct{}
 }
 
 func New(database *db.DB, executor *tofu.Executor, config Config) *Server {
@@ -59,48 +59,46 @@ func (s *Server) runIdleWatcher() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		workspaces, err := s.db.ListWorkspaces()
+		envs, err := s.db.ListEnvironments()
 		if err != nil {
 			continue
 		}
-		for _, w := range workspaces {
-			if w.Status != "running" {
+		for _, e := range envs {
+			if e.Status != "running" {
 				continue
 			}
-			last := s.hub.AgentLastSeen(w.ID)
+			last := s.hub.AgentLastSeen(e.ID)
 			if last.IsZero() {
-				// Agent never connected or already disconnected.
-				// Only stop if the workspace has been running a while.
 				continue
 			}
 			if time.Since(last) > s.config.IdleTimeout {
-				log.Printf("idle-watcher: stopping workspace %s (idle for %s)", w.ID, time.Since(last).Round(time.Second))
-				if _, loaded := s.building.LoadOrStore(w.ID, struct{}{}); loaded {
+				log.Printf("idle-watcher: stopping environment %s (idle for %s)", e.ID, time.Since(last).Round(time.Second))
+				if _, loaded := s.building.LoadOrStore(e.ID, struct{}{}); loaded {
 					continue
 				}
-				tmpl, err := s.db.GetTemplate(w.TemplateID)
+				bp, err := s.db.GetBlueprint(e.BlueprintID)
 				if err != nil {
-					s.building.Delete(w.ID)
+					s.building.Delete(e.ID)
 					continue
 				}
-				if err := s.executor.WriteHCL(w.ID, tmpl.HCL); err != nil {
-					s.building.Delete(w.ID)
+				if err := s.executor.WriteHCL(e.ID, bp.HCL); err != nil {
+					s.building.Delete(e.ID)
 					continue
 				}
-				buildID := generateSecret()[:32]
-				logPath := s.executor.LogPath(w.ID, buildID)
-				if _, err := s.db.CreateBuild(buildID, w.ID, "stop", logPath); err != nil {
-					s.building.Delete(w.ID)
+				runID := generateSecret()[:32]
+				logPath := s.executor.LogPath(e.ID, runID)
+				if _, err := s.db.CreateRun(e.ID, "stop", logPath); err != nil {
+					s.building.Delete(e.ID)
 					continue
 				}
-				s.db.UpdateWorkspaceStatus(w.ID, "stopping")
-				params := parseParams(w.Params)
-				agentParams := []string{"agent_token=" + w.AgentToken}
+				s.db.UpdateEnvironmentStatus(e.ID, "stopping")
+				params := parseParams(e.Params)
+				agentParams := []string{"agent_token=" + e.AgentToken}
 				if s.config.InternalURL != "" {
 					agentParams = append(agentParams, "tahini_url="+s.config.InternalURL)
 				}
 				params = append(agentParams, params...)
-				go s.runBuild(w.ID, buildID, "stop", params)
+				go s.executeRun(e.ID, runID, "stop", params)
 			}
 		}
 	}
@@ -124,44 +122,44 @@ func (s *Server) routes() {
 			http.NotFound(w, r)
 			return
 		}
-		http.Redirect(w, r, "/workspaces", http.StatusFound)
+		http.Redirect(w, r, "/environments", http.StatusFound)
 	})))
 
-	// Templates
-	s.mux.Handle("GET /templates", auth(http.HandlerFunc(s.handleTemplatesList)))
-	s.mux.Handle("GET /templates/new", auth(http.HandlerFunc(s.handleTemplateNew)))
-	s.mux.Handle("POST /templates", auth(http.HandlerFunc(s.handleTemplateCreate)))
-	s.mux.Handle("GET /templates/{id}", auth(http.HandlerFunc(s.handleTemplateDetail)))
-	s.mux.Handle("GET /templates/{id}/edit", auth(http.HandlerFunc(s.handleTemplateEdit)))
-	s.mux.Handle("POST /templates/{id}/update", auth(http.HandlerFunc(s.handleTemplateUpdate)))
-	s.mux.Handle("POST /templates/{id}/delete", auth(http.HandlerFunc(s.handleTemplateDelete)))
-	s.mux.Handle("POST /templates/{id}/sync", auth(http.HandlerFunc(s.handleTemplateSync)))
+	// Blueprints
+	s.mux.Handle("GET /blueprints", auth(http.HandlerFunc(s.handleBlueprintsList)))
+	s.mux.Handle("GET /blueprints/new", auth(http.HandlerFunc(s.handleBlueprintNew)))
+	s.mux.Handle("POST /blueprints", auth(http.HandlerFunc(s.handleBlueprintCreate)))
+	s.mux.Handle("GET /blueprints/{id}", auth(http.HandlerFunc(s.handleBlueprintDetail)))
+	s.mux.Handle("GET /blueprints/{id}/edit", auth(http.HandlerFunc(s.handleBlueprintEdit)))
+	s.mux.Handle("POST /blueprints/{id}/update", auth(http.HandlerFunc(s.handleBlueprintUpdate)))
+	s.mux.Handle("POST /blueprints/{id}/delete", auth(http.HandlerFunc(s.handleBlueprintDelete)))
+	s.mux.Handle("POST /blueprints/{id}/sync", auth(http.HandlerFunc(s.handleBlueprintSync)))
 
-	// Workspaces
-	s.mux.Handle("GET /workspaces", auth(http.HandlerFunc(s.handleWorkspacesList)))
-	s.mux.Handle("GET /workspaces/new", auth(http.HandlerFunc(s.handleWorkspaceNew)))
-	s.mux.Handle("POST /workspaces", auth(http.HandlerFunc(s.handleWorkspaceCreate)))
-	s.mux.Handle("GET /workspaces/{id}", auth(http.HandlerFunc(s.handleWorkspaceDetail)))
-	s.mux.Handle("POST /workspaces/{id}/start", auth(http.HandlerFunc(s.handleWorkspaceStart)))
-	s.mux.Handle("POST /workspaces/{id}/stop", auth(http.HandlerFunc(s.handleWorkspaceStop)))
-	s.mux.Handle("POST /workspaces/{id}/delete", auth(http.HandlerFunc(s.handleWorkspaceDelete)))
-	s.mux.Handle("POST /workspaces/{id}/params", auth(http.HandlerFunc(s.handleWorkspaceUpdateParams)))
+	// Environments
+	s.mux.Handle("GET /environments", auth(http.HandlerFunc(s.handleEnvironmentsList)))
+	s.mux.Handle("GET /environments/new", auth(http.HandlerFunc(s.handleEnvironmentNew)))
+	s.mux.Handle("POST /environments", auth(http.HandlerFunc(s.handleEnvironmentCreate)))
+	s.mux.Handle("GET /environments/{id}", auth(http.HandlerFunc(s.handleEnvironmentDetail)))
+	s.mux.Handle("POST /environments/{id}/start", auth(http.HandlerFunc(s.handleEnvironmentStart)))
+	s.mux.Handle("POST /environments/{id}/stop", auth(http.HandlerFunc(s.handleEnvironmentStop)))
+	s.mux.Handle("POST /environments/{id}/delete", auth(http.HandlerFunc(s.handleEnvironmentDelete)))
+	s.mux.Handle("POST /environments/{id}/params", auth(http.HandlerFunc(s.handleEnvironmentUpdateParams)))
 
-	// JSON API for polling
-	s.mux.Handle("GET /api/workspaces/{id}/status", auth(http.HandlerFunc(s.handleAPIWorkspaceStatus)))
-	s.mux.Handle("GET /api/builds/{id}", auth(http.HandlerFunc(s.handleAPIBuild)))
-	s.mux.Handle("GET /api/builds/{id}/stream", auth(http.HandlerFunc(s.handleAPIBuildStream)))
+	// Internal JSON API for UI polling
+	s.mux.Handle("GET /api/environments/{id}/status", auth(http.HandlerFunc(s.handleAPIEnvironmentStatus)))
+	s.mux.Handle("GET /api/runs/{id}", auth(http.HandlerFunc(s.handleAPIRun)))
+	s.mux.Handle("GET /api/runs/{id}/stream", auth(http.HandlerFunc(s.handleAPIRunStream)))
 
 	// Agent WebSocket endpoints (no auth middleware – authenticated via token param)
 	s.mux.HandleFunc("GET /agent/connect", s.handleAgentConnect)
 	s.mux.HandleFunc("GET /agent/portforward", s.handleAgentPortForward)
 
 	// Terminal UI + WebSocket (protected)
-	s.mux.Handle("GET /workspaces/{id}/terminal", auth(http.HandlerFunc(s.handleWorkspaceTerminalPage)))
-	s.mux.Handle("GET /ws/workspaces/{id}/terminal", auth(http.HandlerFunc(s.handleWorkspaceTerminalWS)))
+	s.mux.Handle("GET /environments/{id}/terminal", auth(http.HandlerFunc(s.handleEnvironmentTerminalPage)))
+	s.mux.Handle("GET /ws/environments/{id}/terminal", auth(http.HandlerFunc(s.handleEnvironmentTerminalWS)))
 
 	// Port forwarding via agent (protected)
-	s.mux.Handle("GET /ws/workspaces/{id}/ports/{port}", auth(http.HandlerFunc(s.handleWorkspacePortForwardWS)))
+	s.mux.Handle("GET /ws/environments/{id}/ports/{port}", auth(http.HandlerFunc(s.handleEnvironmentPortForwardWS)))
 
 	// Admin (owner + user_admin)
 	ownerAuth := s.requireOwnerOrAdmin
@@ -173,9 +171,30 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /admin/orgs", ownerAuth(http.HandlerFunc(s.handleAdminOrgCreate)))
 	s.mux.Handle("POST /admin/orgs/{id}/delete", ownerAuth(http.HandlerFunc(s.handleAdminOrgDelete)))
 
-	// User profile
+	// User profile + API token management
 	s.mux.Handle("GET /profile", auth(http.HandlerFunc(s.handleProfilePage)))
 	s.mux.Handle("POST /profile/password", auth(http.HandlerFunc(s.handleProfilePassword)))
+	s.mux.Handle("POST /profile/tokens", auth(http.HandlerFunc(s.handleProfileCreateToken)))
+	s.mux.Handle("POST /profile/tokens/{id}/delete", auth(http.HandlerFunc(s.handleProfileDeleteToken)))
+
+	// REST API v1 (Bearer token or session, returns JSON)
+	apiAuth := s.requireAPIAuth
+	s.mux.Handle("GET /api/v1/environments", apiAuth(http.HandlerFunc(s.handleAPIV1ListEnvironments)))
+	s.mux.Handle("POST /api/v1/environments", apiAuth(http.HandlerFunc(s.handleAPIV1CreateEnvironment)))
+	s.mux.Handle("GET /api/v1/environments/{id}", apiAuth(http.HandlerFunc(s.handleAPIV1GetEnvironment)))
+	s.mux.Handle("POST /api/v1/environments/{id}/start", apiAuth(http.HandlerFunc(s.handleAPIV1StartEnvironment)))
+	s.mux.Handle("POST /api/v1/environments/{id}/stop", apiAuth(http.HandlerFunc(s.handleAPIV1StopEnvironment)))
+	s.mux.Handle("POST /api/v1/environments/{id}/delete", apiAuth(http.HandlerFunc(s.handleAPIV1DeleteEnvironment)))
+	s.mux.Handle("GET /api/v1/blueprints", apiAuth(http.HandlerFunc(s.handleAPIV1ListBlueprints)))
+	s.mux.Handle("POST /api/v1/blueprints", apiAuth(http.HandlerFunc(s.handleAPIV1CreateBlueprint)))
+	s.mux.Handle("GET /api/v1/blueprints/{id}", apiAuth(http.HandlerFunc(s.handleAPIV1GetBlueprint)))
+	s.mux.Handle("PUT /api/v1/blueprints/{id}", apiAuth(http.HandlerFunc(s.handleAPIV1UpdateBlueprint)))
+	s.mux.Handle("DELETE /api/v1/blueprints/{id}", apiAuth(http.HandlerFunc(s.handleAPIV1DeleteBlueprint)))
+	s.mux.Handle("GET /api/v1/runs/{id}", apiAuth(http.HandlerFunc(s.handleAPIV1GetRun)))
+	s.mux.Handle("GET /api/v1/runs/{id}/logs", apiAuth(http.HandlerFunc(s.handleAPIV1GetRunLogs)))
+	s.mux.Handle("GET /api/v1/tokens", apiAuth(http.HandlerFunc(s.handleAPIV1ListTokens)))
+	s.mux.Handle("POST /api/v1/tokens", apiAuth(http.HandlerFunc(s.handleAPIV1CreateToken)))
+	s.mux.Handle("DELETE /api/v1/tokens/{id}", apiAuth(http.HandlerFunc(s.handleAPIV1DeleteToken)))
 }
 
 // render parses base.html + the named page template and executes "base".

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -134,6 +135,45 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		sess, ok := s.parseSession(r)
 		if !ok {
 			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxSession, sess)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// parseBearerToken validates a Bearer thn_* token from the Authorization header.
+func (s *Server) parseBearerToken(r *http.Request) (sessionInfo, bool) {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer thn_") {
+		return sessionInfo{}, false
+	}
+	raw := strings.TrimPrefix(auth, "Bearer ")
+	h := sha256.Sum256([]byte(raw))
+	hash := hex.EncodeToString(h[:])
+	token, err := s.db.GetAPITokenByHash(hash)
+	if err != nil {
+		return sessionInfo{}, false
+	}
+	user, err := s.db.GetUserByID(token.UserID)
+	if err != nil {
+		return sessionInfo{}, false
+	}
+	go s.db.TouchAPIToken(token.ID)
+	return sessionInfo{UserID: user.ID, Role: user.Role}, true
+}
+
+// requireAPIAuth accepts Bearer token or session cookie; returns JSON 401 on failure.
+func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sess, ok := s.parseBearerToken(r)
+		if !ok {
+			sess, ok = s.parseSession(r)
+		}
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxSession, sess)

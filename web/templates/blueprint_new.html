@@ -1,11 +1,11 @@
-{{define "title"}}new template - tahini{{end}}
+{{define "title"}}new blueprint - tahini{{end}}
 {{define "content"}}
-<h1>new template</h1>
+<h1>new blueprint</h1>
 {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
-<form method="post" action="/templates" style="max-width:860px">
+<form method="post" action="/blueprints" style="max-width:860px">
   <div class="form-row">
     <label for="name">name</label>
-    <input type="text" id="name" name="name" placeholder="my-k8s-workspace" required>
+    <input type="text" id="name" name="name" placeholder="my-k8s-environment" required>
   </div>
   <div class="form-row">
     <label for="description">description</label>
@@ -18,10 +18,10 @@
     <input type="text" id="git_url" name="git_url" placeholder="https://raw.githubusercontent.com/…/main.tf" style="width:600px">
   </div>
   <div class="form-row">
-    <label for="hcl">opentofu template (HCL)</label>
+    <label for="hcl">opentofu blueprint (HCL)</label>
     <label class="sub">
       use the <code>kubernetes</code> provider. a <code>variable "transition"</code> is automatically injected
-      with values <code>start</code> / <code>stop</code> / <code>delete</code> so your template can react.
+      with values <code>start</code> / <code>stop</code> / <code>delete</code> so your blueprint can react.
     </label>
     <textarea id="hcl" name="hcl" rows="28" required spellcheck="false" placeholder='terraform {
   required_providers {
@@ -30,24 +30,10 @@
 }
 
 variable "transition" { default = "start" }
-variable "name"       { default = "my-workspace" }
+variable "name"       { default = "my-environment" }
 variable "namespace"  { default = "default" }
 
 provider "kubernetes" {}
-
-resource "kubernetes_persistent_volume_claim_v1" "data" {
-  metadata {
-    name      = "${var.name}-data"
-    namespace = var.namespace
-  }
-  spec {
-    access_modes = ["ReadWriteOnce"]
-    resources {
-      requests = { storage = "5Gi" }
-    }
-  }
-  wait_until_bound = false
-}
 
 resource "kubernetes_pod_v1" "main" {
   count = var.transition == "stop" ? 0 : 1
@@ -58,26 +44,16 @@ resource "kubernetes_pod_v1" "main" {
   spec {
     container {
       name    = "main"
-      image   = "ubuntu:22.04"
+      image   = "alpine:3.19"
       command = ["sleep", "infinity"]
-      volume_mount {
-        name       = "data"
-        mount_path = "/data"
-      }
-    }
-    volume {
-      name = "data"
-      persistent_volume_claim {
-        claim_name = kubernetes_persistent_volume_claim_v1.data.metadata[0].name
-      }
     }
     restart_policy = "Never"
   }
 }'></textarea>
   </div>
   <div class="form-row" style="margin-top:1rem">
-    <button type="submit" class="btn-primary">create template</button>
-    <a href="/templates" class="btn" style="margin-left:0.5rem">cancel</a>
+    <button type="submit" class="btn-primary">create blueprint</button>
+    <a href="/blueprints" class="btn" style="margin-left:0.5rem">cancel</a>
   </div>
 </form>
 {{end}}

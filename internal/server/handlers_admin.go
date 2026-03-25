@@ -8,6 +8,15 @@ import (
 	"tahini.dev/tahini/internal/db"
 )
 
+// profilePage holds data for the profile page template.
+type profilePage struct {
+	User     *db.User
+	Tokens   []db.APIToken
+	NewToken string
+	Error    string
+	Success  string
+}
+
 type adminUsersPage struct {
 	Users []db.User
 	Orgs  []db.Org
@@ -112,10 +121,47 @@ func (s *Server) handleProfilePage(w http.ResponseWriter, r *http.Request) {
 			user = &u
 		}
 	}
-	s.render(w, "profile", map[string]any{
-		"User":  user,
-		"Error": r.URL.Query().Get("error"),
+	var tokens []db.APIToken
+	if user != nil {
+		tokens, _ = s.db.ListAPITokensByUser(user.ID)
+	}
+	s.render(w, "profile", profilePage{
+		User:     user,
+		Tokens:   tokens,
+		NewToken: r.URL.Query().Get("new_token"),
+		Error:    r.URL.Query().Get("error"),
+		Success:  r.URL.Query().Get("success"),
 	})
+}
+
+func (s *Server) handleProfileCreateToken(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFromContext(r)
+	if sess.UserID == "" {
+		http.Redirect(w, r, "/profile?error=api+tokens+require+a+database+user+account", http.StatusSeeOther)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Redirect(w, r, "/profile?error=token+name+is+required", http.StatusSeeOther)
+		return
+	}
+	rawToken, tokenHash, err := generateAPIToken()
+	if err != nil {
+		http.Redirect(w, r, "/profile?error=failed+to+generate+token", http.StatusSeeOther)
+		return
+	}
+	if _, err := s.db.CreateAPIToken(sess.UserID, name, tokenHash); err != nil {
+		http.Redirect(w, r, "/profile?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/profile?new_token="+url.QueryEscape(rawToken), http.StatusSeeOther)
+}
+
+func (s *Server) handleProfileDeleteToken(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFromContext(r)
+	id := r.PathValue("id")
+	s.db.DeleteAPIToken(id, sess.UserID)
+	http.Redirect(w, r, "/profile", http.StatusSeeOther)
 }
 
 func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {

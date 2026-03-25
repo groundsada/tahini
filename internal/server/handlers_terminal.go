@@ -16,7 +16,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// handleAgentConnect is called by the tahini-agent binary inside workspace pods.
+// handleAgentConnect is called by the tahini-agent binary inside environment pods.
 // It authenticates via token query param and hands the connection to the hub.
 func (s *Server) handleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
@@ -24,7 +24,7 @@ func (s *Server) handleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing token", http.StatusUnauthorized)
 		return
 	}
-	workspace, err := s.db.GetWorkspaceByAgentToken(token)
+	env, err := s.db.GetEnvironmentByAgentToken(token)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -35,32 +35,32 @@ func (s *Server) handleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.hub.HandleAgent(workspace.ID, conn)
+	s.hub.HandleAgent(env.ID, conn)
 }
 
-// handleWorkspaceTerminalPage renders the xterm.js terminal UI (standalone, full-screen).
-func (s *Server) handleWorkspaceTerminalPage(w http.ResponseWriter, r *http.Request) {
+// handleEnvironmentTerminalPage renders the xterm.js terminal UI (standalone, full-screen).
+func (s *Server) handleEnvironmentTerminalPage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	workspace, err := s.db.GetWorkspace(id)
+	env, err := s.db.GetEnvironment(id)
 	if err != nil {
-		http.Redirect(w, r, "/workspaces?error=workspace+not+found", http.StatusFound)
+		http.Redirect(w, r, "/environments?error=environment+not+found", http.StatusFound)
 		return
 	}
-	tmpl, err := template.ParseFS(web.TemplateFS, "templates/workspace_terminal.html")
+	tmpl, err := template.ParseFS(web.TemplateFS, "templates/environment_terminal.html")
 	if err != nil {
 		http.Error(w, "template parse error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.ExecuteTemplate(w, "terminal", map[string]any{"Workspace": workspace}); err != nil {
+	if err := tmpl.ExecuteTemplate(w, "terminal", map[string]any{"Environment": env}); err != nil {
 		log.Printf("terminal template render error: %v", err)
 	}
 }
 
-// handleWorkspaceTerminalWS proxies between the browser and the workspace agent via the hub.
-func (s *Server) handleWorkspaceTerminalWS(w http.ResponseWriter, r *http.Request) {
+// handleEnvironmentTerminalWS proxies between the browser and the environment agent via the hub.
+func (s *Server) handleEnvironmentTerminalWS(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := s.db.GetWorkspace(id); err != nil {
+	if _, err := s.db.GetEnvironment(id); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -82,7 +82,7 @@ func (s *Server) handleAgentPortForward(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "missing params", http.StatusBadRequest)
 		return
 	}
-	if _, err := s.db.GetWorkspaceByAgentToken(token); err != nil {
+	if _, err := s.db.GetEnvironmentByAgentToken(token); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -95,8 +95,8 @@ func (s *Server) handleAgentPortForward(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handleWorkspacePortForwardWS opens a port-forward to the workspace and proxies WebSocket traffic.
-func (s *Server) handleWorkspacePortForwardWS(w http.ResponseWriter, r *http.Request) {
+// handleEnvironmentPortForwardWS opens a port-forward to the environment and proxies WebSocket traffic.
+func (s *Server) handleEnvironmentPortForwardWS(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	portStr := r.PathValue("port")
 	port, err := strconv.Atoi(portStr)
@@ -104,8 +104,8 @@ func (s *Server) handleWorkspacePortForwardWS(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid port", http.StatusBadRequest)
 		return
 	}
-	if _, err := s.db.GetWorkspace(id); err != nil {
-		http.Error(w, "workspace not found", http.StatusNotFound)
+	if _, err := s.db.GetEnvironment(id); err != nil {
+		http.Error(w, "environment not found", http.StatusNotFound)
 		return
 	}
 

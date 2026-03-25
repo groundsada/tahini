@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"tahini.dev/tahini/internal/db"
@@ -38,8 +39,16 @@ func main() {
 		tofuBin = "tofu"
 	}
 
-	dbPath := filepath.Join(dataDir, "tahini.db")
-	database, err := db.New(dbPath)
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = filepath.Join(dataDir, "tahini.db")
+	}
+	if strings.HasPrefix(dsn, "postgres") {
+		log.Printf("database: postgres")
+	} else {
+		log.Printf("database: sqlite (%s)", dsn)
+	}
+	database, err := db.New(dsn)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}
@@ -66,8 +75,8 @@ func main() {
 		IdleTimeout:   idleTimeout,
 	})
 
-	if err := database.SeedDefaultTemplates(); err != nil {
-		log.Printf("warning: failed to seed default templates: %v", err)
+	if err := database.SeedDefaultBlueprints(); err != nil {
+		log.Printf("warning: failed to seed default blueprints: %v", err)
 	}
 
 	log.Printf("tahini listening on %s", addr)

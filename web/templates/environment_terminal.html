@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>terminal – {{.Workspace.Name}}</title>
+  <title>terminal – {{.Environment.Name}}</title>
   <link rel="stylesheet" href="/static/xterm.min.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,7 +27,7 @@
 </head>
 <body>
 <div id="bar">
-  <a href="/workspaces/{{.Workspace.ID}}">&larr; {{.Workspace.Name}}</a>
+  <a href="/environments/{{.Environment.ID}}">&larr; {{.Environment.Name}}</a>
   <span id="status" style="color:#f0ad4e">connecting…</span>
 </div>
 <div id="terminal"></div>
@@ -36,7 +36,7 @@
 <script>
 (function () {
   var statusEl = document.getElementById('status');
-  var workspaceID = '{{.Workspace.ID}}';
+  var envID = '{{.Environment.ID}}';
 
   function setStatus(text, color) {
     statusEl.textContent = text;
@@ -64,7 +64,7 @@
   requestAnimationFrame(fit);
 
   var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  var wsURL = proto + '://' + location.host + '/ws/workspaces/' + workspaceID + '/terminal';
+  var wsURL = proto + '://' + location.host + '/ws/environments/' + envID + '/terminal';
   var ws = new WebSocket(wsURL);
   ws.binaryType = 'arraybuffer';
 

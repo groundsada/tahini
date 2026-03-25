@@ -1,16 +1,16 @@
-{{define "title"}}workspaces - tahini{{end}}
+{{define "title"}}environments - tahini{{end}}
 {{define "content"}}
-<h1>workspaces</h1>
+<h1>environments</h1>
 {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
-<p><a href="/workspaces/new" class="btn btn-primary btn-sm">+ new workspace</a></p>
-{{if .Workspaces}}
+<p><a href="/environments/new" class="btn btn-primary btn-sm">+ new environment</a></p>
+{{if .Environments}}
 <table>
-  <thead><tr><th>name</th><th>template</th><th>status</th><th>updated</th><th>actions</th></tr></thead>
+  <thead><tr><th>name</th><th>blueprint</th><th>status</th><th>updated</th><th>actions</th></tr></thead>
   <tbody>
-  {{range .Workspaces}}
+  {{range .Environments}}
   <tr>
-    <td><a href="/workspaces/{{.ID}}">{{.Name}}</a></td>
-    <td><a href="/templates/{{.TemplateID}}">{{.TemplateName}}</a></td>
+    <td><a href="/environments/{{.ID}}">{{.Name}}</a></td>
+    <td><a href="/blueprints/{{.BlueprintID}}">{{.BlueprintName}}</a></td>
     <td>
       <span class="badge badge-{{.Status}}">{{.Status}}</span>
       {{if eq .Status "running"}}<span class="agent-dot agent-dot-off" id="dot-{{.ID}}" title="checking…"></span>{{end}}
@@ -18,15 +18,15 @@
     <td class="meta">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
     <td>
       {{if or (eq .Status "stopped") (eq .Status "error")}}
-      <form class="inline" method="post" action="/workspaces/{{.ID}}/start">
+      <form class="inline" method="post" action="/environments/{{.ID}}/start">
         <button class="btn btn-sm btn-primary">start</button>
       </form>
       {{end}}
       {{if eq .Status "running"}}
-      <form class="inline" method="post" action="/workspaces/{{.ID}}/stop">
+      <form class="inline" method="post" action="/environments/{{.ID}}/stop">
         <button class="btn btn-sm">stop</button>
       </form>
-      <a href="/workspaces/{{.ID}}/terminal" class="btn btn-sm" target="_blank">terminal</a>
+      <a href="/environments/{{.ID}}/terminal" class="btn btn-sm" target="_blank">terminal</a>
       {{end}}
     </td>
   </tr>
@@ -34,17 +34,16 @@
   </tbody>
 </table>
 {{else}}
-<p class="meta">no workspaces yet. <a href="/workspaces/new">create one</a>.</p>
+<p class="meta">no environments yet. <a href="/environments/new">create one</a>.</p>
 {{end}}
 {{end}}
 
 {{define "scripts"}}
 <script>
 (function() {
-  // Poll agent status for every running workspace dot on the page.
   document.querySelectorAll('[id^="dot-"]').forEach(function(dot) {
     var id = dot.id.replace('dot-', '');
-    fetch('/api/workspaces/' + id + '/status')
+    fetch('/api/environments/' + id + '/status')
       .then(function(r) { return r.json(); })
       .then(function(d) {
         var on = d.agent_connected === true;

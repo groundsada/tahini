@@ -1,0 +1,25 @@
+{{define "title"}}blueprints - tahini{{end}}
+{{define "content"}}
+<h1>blueprints</h1>
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+<p><a href="/blueprints/new" class="btn btn-primary btn-sm">+ new blueprint</a></p>
+{{if .Blueprints}}
+<table>
+  <thead><tr><th>name</th><th>description</th><th>created</th><th>actions</th></tr></thead>
+  <tbody>
+  {{range .Blueprints}}
+  <tr>
+    <td><a href="/blueprints/{{.ID}}">{{.Name}}</a></td>
+    <td class="meta">{{.Description}}</td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+    <td>
+      <a href="/blueprints/{{.ID}}/edit" class="btn btn-sm">edit</a>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="meta">no blueprints yet. <a href="/blueprints/new">create one</a>.</p>
+{{end}}
+{{end}}

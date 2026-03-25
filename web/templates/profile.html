@@ -2,6 +2,7 @@
 {{define "content"}}
 <h1>profile</h1>
 {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+{{if .Success}}<div class="alert alert-success">{{.Success}}</div>{{end}}
 
 {{if .User}}
 <p><strong>username:</strong> {{.User.Username}}</p>
@@ -18,7 +19,48 @@
     <button type="submit" class="btn-primary">update password</button>
   </div>
 </form>
+
+<h2>api tokens</h2>
+{{if .NewToken}}
+<div class="alert alert-success" style="margin-bottom:1rem">
+  <strong>token created</strong> — copy it now, it will not be shown again:<br>
+  <code style="display:block;margin-top:0.5rem;padding:0.4rem;background:rgba(0,0,0,0.1);border-radius:2px;word-break:break-all;user-select:all">{{.NewToken}}</code>
+</div>
+{{end}}
+{{if .Tokens}}
+<table style="margin-bottom:1rem">
+  <thead><tr><th>name</th><th>created</th><th>last used</th><th></th></tr></thead>
+  <tbody>
+  {{range .Tokens}}
+  <tr>
+    <td>{{.Name}}</td>
+    <td class="meta">{{.CreatedAt.Format "2006-01-02"}}</td>
+    <td class="meta">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02"}}{{else}}never{{end}}</td>
+    <td>
+      <form class="inline" method="post" action="/profile/tokens/{{.ID}}/delete"
+            onsubmit="return confirm('delete token {{.Name}}?')">
+        <button class="btn btn-sm btn-danger">delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="meta" style="margin-bottom:0.75rem">no api tokens yet.</p>
+{{end}}
+<form method="post" action="/profile/tokens" style="max-width:400px">
+  <div class="form-row">
+    <label for="tname">token name</label>
+    <input type="text" id="tname" name="name" required placeholder="ci-deploy">
+  </div>
+  <div class="form-row" style="margin-top:0.75rem">
+    <button type="submit" class="btn-primary">create token</button>
+  </div>
+</form>
+
 {{else}}
 <p class="meta">logged in as env admin. password is controlled via <code>TAHINI_ADMIN_PASS</code> environment variable.</p>
+<p class="meta" style="margin-top:0.5rem">api tokens are only available for database users, not the env admin.</p>
 {{end}}
 {{end}}

@@ -6,7 +6,6 @@ metadata:
   labels:
     {{- include "tahini.labels" . | nindent 4 }}
 spec:
-  # WARNING: do not scale beyond 1 — SQLite is single-writer
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
@@ -41,6 +40,10 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ include "tahini.fullname" . }}-credentials
+            {{- if .Values.database.existingSecret }}
+            - secretRef:
+                name: {{ .Values.database.existingSecret }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /login

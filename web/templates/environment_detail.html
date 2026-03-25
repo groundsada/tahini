@@ -1,49 +1,49 @@
-{{define "title"}}{{.Workspace.Name}} - tahini{{end}}
+{{define "title"}}{{.Environment.Name}} - tahini{{end}}
 {{define "content"}}
-<h1>{{.Workspace.Name}}</h1>
+<h1>{{.Environment.Name}}</h1>
 {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
 
 <p>
-  template: <a href="/templates/{{.Workspace.TemplateID}}">{{.Workspace.TemplateName}}</a>
+  blueprint: <a href="/blueprints/{{.Environment.BlueprintID}}">{{.Environment.BlueprintName}}</a>
   &nbsp;&mdash;&nbsp;
-  status: <span id="status-badge" class="badge badge-{{.Workspace.Status}}">{{.Workspace.Status}}</span>
+  status: <span id="status-badge" class="badge badge-{{.Environment.Status}}">{{.Environment.Status}}</span>
   {{if .AgentConnected}}
   <span id="agent-dot" class="agent-dot agent-dot-on" title="agent connected"></span>
   {{else}}
   <span id="agent-dot" class="agent-dot agent-dot-off" title="agent disconnected"></span>
   {{end}}
   &nbsp;&mdash;&nbsp;
-  <span class="meta">created {{.Workspace.CreatedAt.Format "2006-01-02 15:04"}}</span>
+  <span class="meta">created {{.Environment.CreatedAt.Format "2006-01-02 15:04"}}</span>
 </p>
 
-{{if .Workspace.Params}}
-<p class="meta" style="margin-top:0.25rem">vars: <code>{{.Workspace.Params}}</code></p>
+{{if .Environment.Params}}
+<p class="meta" style="margin-top:0.25rem">vars: <code>{{.Environment.Params}}</code></p>
 {{end}}
 
 <div class="actions" style="margin-top:1rem">
-  {{if or (eq .Workspace.Status "stopped") (eq .Workspace.Status "error")}}
-  <form class="inline" method="post" action="/workspaces/{{.Workspace.ID}}/start">
+  {{if or (eq .Environment.Status "stopped") (eq .Environment.Status "error")}}
+  <form class="inline" method="post" action="/environments/{{.Environment.ID}}/start">
     <button class="btn-primary">start</button>
   </form>
   {{end}}
-  {{if eq .Workspace.Status "running"}}
-  <form class="inline" method="post" action="/workspaces/{{.Workspace.ID}}/stop">
+  {{if eq .Environment.Status "running"}}
+  <form class="inline" method="post" action="/environments/{{.Environment.ID}}/stop">
     <button>stop</button>
   </form>
-  <a href="/workspaces/{{.Workspace.ID}}/terminal" class="btn" target="_blank">terminal</a>
+  <a href="/environments/{{.Environment.ID}}/terminal" class="btn" target="_blank">terminal</a>
   {{end}}
-  {{if not (or (eq .Workspace.Status "starting") (eq .Workspace.Status "stopping") (eq .Workspace.Status "deleting"))}}
-  <form class="inline" method="post" action="/workspaces/{{.Workspace.ID}}/delete"
-        onsubmit="return confirm('delete workspace {{.Workspace.Name}} and all its resources?')">
+  {{if not (or (eq .Environment.Status "starting") (eq .Environment.Status "stopping") (eq .Environment.Status "deleting"))}}
+  <form class="inline" method="post" action="/environments/{{.Environment.ID}}/delete"
+        onsubmit="return confirm('delete environment {{.Environment.Name}} and all its resources?')">
     <button class="btn-danger">delete</button>
   </form>
   {{end}}
 </div>
 
-{{if and (or (eq .Workspace.Status "stopped") (eq .Workspace.Status "error")) .TemplateVars}}
+{{if and (or (eq .Environment.Status "stopped") (eq .Environment.Status "error")) .BlueprintVars}}
 <h2>variables</h2>
-<form method="post" action="/workspaces/{{.Workspace.ID}}/params" style="max-width:480px" id="params-form">
-  {{range .TemplateVars}}
+<form method="post" action="/environments/{{.Environment.ID}}/params" style="max-width:480px" id="params-form">
+  {{range .BlueprintVars}}
   <div class="form-row">
     <label for="pvar_{{.}}">{{.}}</label>
     <input type="text" id="pvar_{{.}}" data-varname="{{.}}" style="width:320px">
@@ -56,7 +56,7 @@
 </form>
 <script>
 (function(){
-  var raw = {{.Workspace.Params | js}};
+  var raw = {{.Environment.Params | js}};
   var pairs = {};
   raw.split('\n').forEach(function(line){
     var idx = line.indexOf('=');
@@ -78,19 +78,19 @@
 </script>
 {{end}}
 
-{{if .LatestBuild}}
-<h2>last build — <span class="badge badge-{{.LatestBuild.Status}}">{{.LatestBuild.Transition}} / {{.LatestBuild.Status}}</span>
-  <span class="meta" style="font-size:0.85em;font-weight:normal"> {{.LatestBuild.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
+{{if .LatestRun}}
+<h2>last run — <span class="badge badge-{{.LatestRun.Status}}">{{.LatestRun.Transition}} / {{.LatestRun.Status}}</span>
+  <span class="meta" style="font-size:0.85em;font-weight:normal"> {{.LatestRun.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
 </h2>
-<pre id="build-logs" class="logs">{{if .LogContent}}{{.LogContent}}{{else}}waiting for logs...{{end}}</pre>
+<pre id="run-logs" class="logs">{{if .LogContent}}{{.LogContent}}{{else}}waiting for logs...{{end}}</pre>
 {{end}}
 
-{{if gt (len .Builds) 1}}
-<h2>build history</h2>
+{{if gt (len .Runs) 1}}
+<h2>run history</h2>
 <table>
   <thead><tr><th>transition</th><th>status</th><th>started</th><th>finished</th></tr></thead>
   <tbody>
-  {{range .Builds}}
+  {{range .Runs}}
   <tr>
     <td>{{.Transition}}</td>
     <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
@@ -107,11 +107,11 @@
 <script>
 (function() {
   const transient = ['starting', 'stopping', 'deleting'];
-  let status = '{{.Workspace.Status}}';
-  const workspaceID = '{{.Workspace.ID}}';
-  {{if .LatestBuild}}
-  const latestBuildID = '{{.LatestBuild.ID}}';
-  const buildIsRunning = '{{.LatestBuild.Status}}' === 'running';
+  let status = '{{.Environment.Status}}';
+  const envID = '{{.Environment.ID}}';
+  {{if .LatestRun}}
+  const latestRunID = '{{.LatestRun.ID}}';
+  const runIsRunning = '{{.LatestRun.Status}}' === 'running';
   {{end}}
 
   function updateDot(connected) {
@@ -122,7 +122,7 @@
   }
 
   function pollDot() {
-    fetch('/api/workspaces/' + workspaceID + '/status')
+    fetch('/api/environments/' + envID + '/status')
       .then(r => r.json())
       .then(d => { updateDot(d.agent_connected === true); })
       .catch(() => {})
@@ -130,17 +130,17 @@
   }
 
   function scrollLogs() {
-    const el = document.getElementById('build-logs');
+    const el = document.getElementById('run-logs');
     if (el) el.scrollTop = el.scrollHeight;
   }
   scrollLogs();
 
   function startLogStream() {
-    {{if .LatestBuild}}
-    if (!latestBuildID || !buildIsRunning) return;
-    const el = document.getElementById('build-logs');
+    {{if .LatestRun}}
+    if (!latestRunID || !runIsRunning) return;
+    const el = document.getElementById('run-logs');
     if (!el) return;
-    const src = new EventSource('/api/builds/' + latestBuildID + '/stream');
+    const src = new EventSource('/api/runs/' + latestRunID + '/stream');
     src.onmessage = function(e) {
       try { el.textContent = atob(e.data); scrollLogs(); } catch(_) {}
     };
@@ -151,9 +151,9 @@
   startLogStream();
 
   function poll() {
-    fetch('/api/workspaces/' + workspaceID + '/status')
+    fetch('/api/environments/' + envID + '/status')
       .then(r => {
-        if (r.status === 404) { window.location.href = '/workspaces'; return null; }
+        if (r.status === 404) { window.location.href = '/environments'; return null; }
         return r.json();
       })
       .then(d => {
@@ -174,7 +174,6 @@
   if (transient.includes(status)) {
     setTimeout(poll, 2000);
   } else {
-    // Not transient on load: just refresh the agent dot once, then keep polling it.
     setTimeout(pollDot, 2000);
   }
 })();
